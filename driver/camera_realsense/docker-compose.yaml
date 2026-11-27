@@ -1,0 +1,23 @@
+services:
+  camera_realsense:
+    build:
+      # The image also builds mrp_camera_common: clone it next to this repository
+      # (driver workspace layout), see README.md.
+      context: ..
+      dockerfile: camera_realsense/Dockerfile
+    # A real init as PID 1 forwards `docker stop` and reaps child processes.
+    init: true
+    image: mrp-camera-realsense
+    container_name: camera_realsense
+    restart: unless-stopped
+    network_mode: host
+    # librealsense talks to the camera over libusb, so it needs the USB bus
+    # (not a /dev/videoX node). Privileged + /dev also survives replugs.
+    privileged: true
+    devices:
+      - /dev:/dev
+    # Defaults: 640x480 @ 30 FPS JPEG color on image/compressed, no depth.
+    # Enable aligned depth (depth/compressed, uint16 mm PNG):
+    #   command: ["--ros-args", "-p", "enable_depth:=true"]
+    # Pick one of several cameras:
+    #   command: ["--ros-args", "-p", "serial_number:=123456789012"]

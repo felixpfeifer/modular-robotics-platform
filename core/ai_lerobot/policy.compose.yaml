@@ -1,0 +1,70 @@
+# Policy deployment for the MRP deployment agent (mrp-policy project): an inference server plus the
+# ROS `policy_source` bridge that feeds the control arbiter. Started with `--profile policy`; the
+# agent sets MRP_ACT_CHECKPOINT and the MRP_POLICY_* variables. The service names are validated by
+# application/backend/mrp_app/deployment.py (check_policy_plan).
+name: mrp-policy
+
+services:
+  # Only reachable from policy_source over this project's private network (no published ports).
+  act_server:
+    image: ${MRP_AI_LEROBOT_IMAGE:-mrp-ai-lerobot:dev}
+    profiles: [policy]
+    command:
+      - serve
+      - --host
+      - 0.0.0.0
+      - --policy
+      - ${MRP_POLICY_TYPE:-act}
+      - --device
+      - ${MRP_POLICY_DEVICE:-cpu}
+      - --checkpoint
+      - ${MRP_ACT_CHECKPOINT:?Set MRP_ACT_CHECKPOINT}
+    restart: "no"
+    volumes:
+      - ./ai_lerobot:/app/ai_lerobot:ro
+      - ./training_lerobot:/app/training_lerobot:ro
+      - ./policy_lerobot:/app/policy_lerobot:ro
+      - training_runs:/checkpoints:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8092/health', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 6
+      start_period: 120s
+
+  policy_source:
+    image: ${MRP_CONTROL_ARBITER_IMAGE:-mrp-control-arbiter}
+    profiles: [policy]
+    command:
+      - ros2
+      - run
+      - control_arbiter
+      - policy_source
+      - --ros-args
+      - -p
+      - server_url:=http://act_server:8092
+      - -p
+      - camera_topic:=${MRP_POLICY_CAMERA_TOPIC:-/image/compressed}
+      - -p
+      - use_sim_time:=${MRP_POLICY_SIM_TIME:-false}
+    restart: "no"
+    volumes:
+      - ../control_arbiter/control_arbiter:/ws/install/control_arbiter/lib/python3.12/site-packages/control_arbiter:ro
+    environment:
+      RMW: zenoh
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/zenoh_router:${MRP_POLICY_ROUTER_PORT:-17447}"];scouting/multicast/enabled=false'
+    depends_on:
+      act_server:
+        condition: service_healthy
+    networks: [default, cell]
+
+networks:
+  cell:
+    name: mrp-cell
+    external: true
+
+volumes:
+  training_runs:
+    external: true
+    name: mrp-training_runs

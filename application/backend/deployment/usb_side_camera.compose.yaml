@@ -1,0 +1,23 @@
+# Overlay: second external USB camera (side / bird's-eye view) on the `camera2` slot.
+# The agent sets CAMERA2_DEVICE after verifying it is a different capture device.
+services:
+  camera2:
+    image: ${MRP_CAMERA2_IMAGE:-mrp-camera-opencv}
+    entrypoint: null
+    build: ../../../../driver/camera_opencv
+    environment:
+      RMW_IMPLEMENTATION: rmw_zenoh_cpp
+    devices:
+      - ${CAMERA2_DEVICE:-/dev/null}:${CAMERA2_DEVICE:-/dev/null}
+    command:
+      - --ros-args
+      - -p
+      - video_device:=${CAMERA2_DEVICE:-/dev/null}
+      - -p
+      - image_width:=${CAMERA2_WIDTH:-640}
+      - -p
+      - image_height:=${CAMERA2_HEIGHT:-480}
+      - -p
+      - fps:=${CAMERA2_FPS:-30}
+      - -r
+      - image/compressed:=${CAMERA2_TOPIC:-/side/image/compressed}

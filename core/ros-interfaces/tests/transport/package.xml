@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>platform_interface_transport_tests</name>
+  <version>0.1.0</version>
+  <description>Cross-language transport acceptance fixtures for platform interfaces.</description>
+  <maintainer email="robotics-platform@global-dynamics.example">Modular Robotics Platform</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>rclpy</test_depend>
+  <test_depend>platform_control_interfaces</test_depend>
+  <test_depend>platform_episode_interfaces</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

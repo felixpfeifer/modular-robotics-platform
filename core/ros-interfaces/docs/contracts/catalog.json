@@ -1,0 +1,238 @@
+{
+  "schema_version": "1.0",
+  "repository_version": "0.1.0",
+  "contracts": [
+    {
+      "type": "platform_common_interfaces/msg/ComponentIdentity",
+      "owner": "foundation",
+      "producers": ["all platform components"],
+      "consumers": ["device registry", "episode recorder"],
+      "purpose": "Identify a component and its immutable source/build revision.",
+      "semantics": "component_id is stable within a workcell; version is SemVer 2."
+    },
+    {
+      "type": "platform_common_interfaces/msg/ConfigurationReference",
+      "owner": "foundation",
+      "producers": ["configuration service"],
+      "consumers": ["control services", "episode recorder"],
+      "purpose": "Reference immutable validated configuration without embedding it.",
+      "semantics": "content_hash is algorithm-prefixed and resolves to exact content."
+    },
+    {
+      "type": "platform_common_interfaces/msg/ProvenanceReference",
+      "owner": "foundation",
+      "producers": ["all artifact producers"],
+      "consumers": ["episode recorder", "distribution evidence"],
+      "purpose": "Relate build, configuration, and calibration provenance.",
+      "semantics": "An empty calibration ID means calibration does not apply."
+    },
+    {
+      "type": "platform_device_interfaces/msg/DeviceDescriptor",
+      "owner": "device-foundation",
+      "producers": ["device registry"],
+      "consumers": ["platform API", "control services"],
+      "purpose": "Describe one stable device instance and its capabilities.",
+      "semantics": "Two devices using one adapter have distinct device_id values."
+    },
+    {
+      "type": "platform_device_interfaces/msg/DeviceState",
+      "owner": "device-foundation",
+      "producers": ["device adapters", "device registry"],
+      "consumers": ["platform API", "safety supervisor"],
+      "purpose": "Report lifecycle, availability, connection, and diagnostics.",
+      "semantics": "State is observational at header.stamp and does not request transitions."
+    },
+    {
+      "type": "platform_device_interfaces/msg/DeviceStateArray",
+      "owner": "device-foundation",
+      "producers": ["device registry"],
+      "consumers": ["platform API", "operator UI"],
+      "purpose": "Provide a bounded point-in-time state snapshot.",
+      "semantics": "Entries are correlated by device_id, never array position."
+    },
+    {
+      "type": "platform_device_interfaces/msg/CalibrationReference",
+      "owner": "device-foundation",
+      "producers": ["calibration service"],
+      "consumers": ["device adapters", "episode recorder"],
+      "purpose": "Reference immutable calibration and its frame pair.",
+      "semantics": "Frames follow REP-103 and content is external."
+    },
+    {
+      "type": "platform_device_interfaces/srv/ListDevices",
+      "owner": "device-foundation",
+      "producers": ["device registry"],
+      "consumers": ["platform API", "operator UI"],
+      "purpose": "List registered descriptors and current states.",
+      "semantics": "Descriptor and state responses are joined by device_id."
+    },
+    {
+      "type": "platform_device_interfaces/srv/GetDeviceState",
+      "owner": "device-foundation",
+      "producers": ["device registry"],
+      "consumers": ["platform API", "safety supervisor"],
+      "purpose": "Read descriptor and state for one stable device ID.",
+      "semantics": "reason is empty on success and machine-readable state remains in fields."
+    },
+    {
+      "type": "platform_control_interfaces/msg/TeleopState",
+      "owner": "control-foundation",
+      "producers": ["Quest bridge", "teleoperation sources"],
+      "consumers": ["retargeting"],
+      "purpose": "Represent robot-independent teleoperator pose and input state.",
+      "semantics": "SI units and REP-103 frame; gripper is normalized to [0,1]."
+    },
+    {
+      "type": "platform_control_interfaces/msg/CartesianIntent",
+      "owner": "control-foundation",
+      "producers": ["retargeting", "MoveIt integration"],
+      "consumers": ["command arbitrator", "robot adapters"],
+      "purpose": "Represent an absolute or delta Cartesian command with lease and deadline.",
+      "semantics": "A zero or expired deadline and an empty reference frame are invalid."
+    },
+    {
+      "type": "platform_control_interfaces/msg/JointIntent",
+      "owner": "control-foundation",
+      "producers": ["retargeting", "trajectory adapters"],
+      "consumers": ["command arbitrator", "robot adapters"],
+      "purpose": "Represent named joint targets with lease and deadline.",
+      "semantics": "Value arrays are empty or exactly aligned with joint_names."
+    },
+    {
+      "type": "platform_control_interfaces/msg/CommandLease",
+      "owner": "control-foundation",
+      "producers": ["command arbitrator"],
+      "consumers": ["retargeting", "robot adapters"],
+      "purpose": "Describe an exclusive, time-bounded command ownership grant.",
+      "semantics": "expires_at is later than issued_at; arbitration is not encoded."
+    },
+    {
+      "type": "platform_control_interfaces/msg/CommandLeaseStatus",
+      "owner": "control-foundation",
+      "producers": ["command arbitrator"],
+      "consumers": ["control sources", "operator UI"],
+      "purpose": "Report the observable state and last transition reason of a lease.",
+      "semantics": "Status does not imply client-side arbitration authority."
+    },
+    {
+      "type": "platform_control_interfaces/msg/BindingDescriptor",
+      "owner": "control-foundation",
+      "producers": ["control service"],
+      "consumers": ["command arbitrator", "operator UI"],
+      "purpose": "Declare a source, mapper, solver, and target relationship.",
+      "semantics": "Mapping implementation and configuration content remain external."
+    },
+    {
+      "type": "platform_control_interfaces/msg/BindingState",
+      "owner": "control-foundation",
+      "producers": ["control service"],
+      "consumers": ["operator UI", "platform API"],
+      "purpose": "Report enabled, eligible, and ownership state for a binding.",
+      "semantics": "A lease UUID is meaningful only when owns_command_lease is true."
+    },
+    {
+      "type": "platform_control_interfaces/msg/SafetyStatus",
+      "owner": "safety-foundation",
+      "producers": ["safety supervisor"],
+      "consumers": ["command arbitrator", "robot adapters"],
+      "purpose": "Report current safety level and motion permission.",
+      "semantics": "Observable status only; policy and stopping behavior are external."
+    },
+    {
+      "type": "platform_control_interfaces/msg/SafetyEvent",
+      "owner": "safety-foundation",
+      "producers": ["safety supervisor"],
+      "consumers": ["episode recorder", "operator UI"],
+      "purpose": "Record a timestamped safety transition, limit, or rejection.",
+      "semantics": "All-zero command UUID means no command correlation."
+    },
+    {
+      "type": "platform_control_interfaces/msg/CommandRejection",
+      "owner": "control-foundation",
+      "producers": ["command arbitrator", "robot adapters"],
+      "consumers": ["control sources", "episode recorder"],
+      "purpose": "Correlate a rejected command with a stable reason code.",
+      "semantics": "It reports a decision made elsewhere and does not encode policy."
+    },
+    {
+      "type": "platform_control_interfaces/srv/AcquireCommandLease",
+      "owner": "control-foundation",
+      "producers": ["command arbitrator"],
+      "consumers": ["retargeting", "control sources"],
+      "purpose": "Request bounded exclusive command ownership.",
+      "semantics": "Response repeats request_id; denial has a reason code."
+    },
+    {
+      "type": "platform_control_interfaces/srv/ReleaseCommandLease",
+      "owner": "control-foundation",
+      "producers": ["command arbitrator"],
+      "consumers": ["retargeting", "control sources"],
+      "purpose": "Request relinquishment of an owned lease.",
+      "semantics": "Release is explicit; clients do not infer it from request completion."
+    },
+    {
+      "type": "platform_control_interfaces/srv/SetActiveBinding",
+      "owner": "control-foundation",
+      "producers": ["control service"],
+      "consumers": ["platform API", "operator UI"],
+      "purpose": "Request enabling or disabling a binding.",
+      "semantics": "Acceptance does not itself grant command ownership."
+    },
+    {
+      "type": "platform_episode_interfaces/msg/EpisodeState",
+      "owner": "data-foundation",
+      "producers": ["episode recorder", "episode validator"],
+      "consumers": ["platform API", "operator UI"],
+      "purpose": "Report recording or processing lifecycle for an episode.",
+      "semantics": "State is observable at header.stamp; transitions are implemented elsewhere."
+    },
+    {
+      "type": "platform_episode_interfaces/msg/EpisodeEvent",
+      "owner": "data-foundation",
+      "producers": ["episode recorder", "platform components"],
+      "consumers": ["episode validator", "operator UI"],
+      "purpose": "Associate timestamped operator, system, safety, or processing events.",
+      "semantics": "Details are bounded and must not embed bulk data or secrets."
+    },
+    {
+      "type": "platform_episode_interfaces/msg/EpisodeMetadata",
+      "owner": "data-foundation",
+      "producers": ["episode recorder"],
+      "consumers": ["episode validator", "data exporter"],
+      "purpose": "Reference workcell, task, configuration, calibration, and producer provenance.",
+      "semantics": "Raw recordings and later derived operations remain separately identifiable."
+    },
+    {
+      "type": "platform_episode_interfaces/msg/ValidationFinding",
+      "owner": "data-foundation",
+      "producers": ["episode validator"],
+      "consumers": ["platform API", "data exporter"],
+      "purpose": "Report a bounded machine-readable validation finding.",
+      "semantics": "Evidence is an immutable reference; start/end use ROS time."
+    },
+    {
+      "type": "platform_episode_interfaces/srv/MarkEpisode",
+      "owner": "data-foundation",
+      "producers": ["episode recorder"],
+      "consumers": ["operator UI", "platform API"],
+      "purpose": "Record a short success, failure, or annotation marker.",
+      "semantics": "The returned event_id identifies the accepted marker."
+    },
+    {
+      "type": "platform_episode_interfaces/action/RecordEpisode",
+      "owner": "data-foundation",
+      "producers": ["episode recorder"],
+      "consumers": ["platform API", "operator UI"],
+      "purpose": "Control a cancellable long-running recording and return an artifact reference.",
+      "semantics": "Canceled results state whether a partial artifact was retained."
+    },
+    {
+      "type": "platform_episode_interfaces/action/ValidateEpisode",
+      "owner": "data-foundation",
+      "producers": ["episode validator"],
+      "consumers": ["platform API", "data exporter"],
+      "purpose": "Validate an immutable recording with progress and bounded findings.",
+      "semantics": "Progress is normalized and result findings are capped at 256."
+    }
+  ]
+}

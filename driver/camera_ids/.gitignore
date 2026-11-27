@@ -1,0 +1,11 @@
+build/
+install/
+log/
+test-log/
+# Track only the Software Suite archives needed by the lab in Git LFS.
+sdk/*
+!sdk/README.md
+!sdk/ids-software-suite-linux-*-debian.tgz
+build-asan/
+install-asan/
+.deps/

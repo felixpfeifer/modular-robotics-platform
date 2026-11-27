@@ -1,0 +1,21 @@
+# ROS 2 / colcon
+build/
+install/
+log/
+test-log/
+.ci_ws/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+dist/
+
+# Local configuration and data
+.env
+hil-data/
+hil-artifacts/

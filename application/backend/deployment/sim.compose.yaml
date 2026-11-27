@@ -1,0 +1,17 @@
+# Overlay for config/sim-so101/compose.yaml; relative paths use that base file.
+services:
+  convert:
+    volumes:
+      - ../../core/recorder/config:/workspace/core/recorder/config:ro
+      - export_data:/data/exports
+
+  upload:
+    image: mrp-episode-converter
+    profiles: [upload]
+    volumes:
+      - export_data:/data/exports:ro
+    entrypoint: ["/bin/bash", "-c", "source /opt/platform/install/setup.bash && exec python /app/episode_recorder_py/upload_lerobot.py \"$$@\"", "--"]
+
+volumes:
+  export_data:
+    name: mrp-app_exports

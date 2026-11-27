@@ -1,0 +1,104 @@
+name: mrp-app
+
+services:
+  app:
+    image: mrp-app:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports: ["127.0.0.1:8088:8088"]
+    command: ["--host", "0.0.0.0"]
+    environment:
+      RMW: zenoh
+      ROS_DOMAIN_ID: "42"
+      # The API starts independently; the ROS client connects in the background
+      # when the cell router is reachable.
+      # The cell's router is reached by service name on the shared mrp-cell network.
+      ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/zenoh_router:17447"];scouting/multicast/enabled=false'
+      ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
+      MRP_MODE: ros
+      MRP_WORKSPACE_CONFIG: /workspace/config/mock-so101/workspace.yaml
+      MRP_DATA_DIR: /data/application
+      MRP_EXPORTS_DIR: /data/exports
+      MRP_AGENT_URL: http://agent:8090
+      MRP_RUNS_DIR: /data/runs
+      # Configuration backups (.tar.gz) live here, apart from the app database.
+      MRP_USER_DATA_DIR: /data/user_data
+      # Custom camera models added in the UI; the agent reads the same file (read-only).
+      MRP_CAMERA_MODELS_FILE: /data/camera-models/custom.json
+    volumes:
+      - ./backend:/app/backend:ro
+      - ./deployment/mock-cell/seed:/workspace/config/mock-so101:ro
+      # Recording configuration the agent generates from the project settings at every cell start.
+      - cell_workspace:/workspace/config/cell-rendered:ro
+      - ../../core/recorder/config:/workspace/core/recorder/config:ro
+      - app_data:/data/application
+      - recordings:/data/datasets
+      - exports:/data/exports
+      - training_runs:/data/runs
+      - user_data:/data/user_data
+      - camera_models:/data/camera-models
+    networks:
+      default:
+        aliases: [backend]  # the frontend's nginx proxies /api to http://backend:8088
+      cell: {}
+    depends_on: [agent]
+
+  # The web UI: static build served by nginx, proxying /api to the backend above.
+  frontend:
+    image: mrp-frontend:dev
+    build:
+      context: ../frontend
+    ports: ["127.0.0.1:5173:8080"]
+    depends_on: [app]
+
+  agent:
+    image: mrp-app-agent:dev
+    build:
+      context: ../..
+      dockerfile: application/backend/Dockerfile.agent
+    environment:
+      MRP_WORKSPACE_ROOT: ${MRP_WORKSPACE_ROOT:?Set MRP_WORKSPACE_ROOT to the absolute MRP workspace path}
+      # Where the cell's Zenoh router is also published for other nodes (laptop tools, GPU hosts).
+      # Empty = 127.0.0.1 only. The router has no authentication: choose an address deliberately.
+      MOCK_ZENOH_BIND: ${MOCK_ZENOH_BIND:-}
+      MRP_CAMERA_MODELS_FILE: /data/camera-models/custom.json
+    command:
+      - --host
+      - 0.0.0.0
+      - --workspace-root
+      - ${MRP_WORKSPACE_ROOT}
+    volumes:
+      # Preserve host paths: Compose bind sources refer to the Docker host.
+      - ${MRP_WORKSPACE_ROOT}:${MRP_WORKSPACE_ROOT}:ro
+      - ./backend:/app/backend:ro
+      - ./deployment/agent.py:/app/agent.py:ro
+      - ./deployment/cell_plan.py:/app/cell_plan.py:ro
+      - ./deployment/device_checks.py:/app/device_checks.py:ro
+      - ./deployment/devices.py:/app/devices.py:ro
+      - ../../core/cell_config/cell_config:/app/core/cell_config:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - exports:/data/exports
+      - training_runs:/data/runs:ro
+      - camera_models:/data/camera-models:ro
+
+networks:
+  cell:
+    name: mrp-cell
+
+volumes:
+  app_data:
+  user_data:
+    name: mrp-user-data
+  camera_models:
+    name: mrp-camera-models
+  exports:
+    name: mrp-app_exports
+  recordings:
+    name: mrp-mock-so101_recordings
+  training_runs:
+    external: true
+    name: mrp-training_runs
+  # Created empty here, filled by the deployment agent whenever a cell is started.
+  cell_workspace:
+    name: mrp-cell-workspace

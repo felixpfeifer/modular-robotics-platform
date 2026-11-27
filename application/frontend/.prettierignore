@@ -1,0 +1,12 @@
+.pnp.cjs
+.pnp.loader.mjs
+dist/
+node_modules/
+# CI outputs and artifacts from other jobs
+.yarn/
+.image-context/
+test-results/
+playwright-report/
+gl-*-report.json
+gitleaks-*.json
+image-context-sources.txt

@@ -1,0 +1,108 @@
+stages: [build, publish]
+
+variables:
+  AMD64_RUNNER_TAG: amd64
+  ARM64_RUNNER_TAG: arm64
+  STORAGE_DRIVER: vfs
+  BUILDAH_FORMAT: oci
+  BUILDAH_ISOLATION: chroot
+  RMW_IMPLEMENTATION: rmw_zenoh_cpp
+
+.ros-base-registry:
+  image:
+    name: quay.io/buildah/stable:v1.40.1
+    entrypoint: [""]
+  before_script:
+    - test -n "$DOCKERHUB_IMAGE"
+    - test -n "$DOCKERHUB_USERNAME"
+    - test -n "$DOCKERHUB_TOKEN"
+    - printf '%s' "$DOCKERHUB_TOKEN" | buildah login --username "$DOCKERHUB_USERNAME" --password-stdin docker.io
+
+# Variants (all FROM an Ubuntu 24.04 image, all carrying the platform ROS messages):
+#   cpu    <image>         amd64 + arm64   ros:jazzy-ros-base
+#   cuda   <image>-cuda    amd64           nvidia/cuda (CUDA 12.8 + cuDNN)
+#   jetson <image>-jetson  arm64           nvidia/cuda (CUDA 13, JetPack 7.2 on Jetson Orin)
+.ros-base-native:
+  extends: .ros-base-registry
+  stage: build
+  script:
+    - |
+      case "$ARCH:$(uname -m)" in
+        amd64:x86_64|arm64:aarch64) ;;
+        *) echo "Runner architecture does not match $ARCH" >&2; exit 1 ;;
+      esac
+    - test "$CI_COMMIT_SHA" = "$INTERFACE_REVISION"
+    - |
+      upstream_var="ROS_BASE_IMAGE_${VARIANT}"; digest_var="ROS_BASE_DIGEST_${VARIANT}"
+      export ROS_BASE_IMAGE="${!upstream_var}" ROS_BASE_DIGEST="${!digest_var}"
+    - export ARCH_IMAGE="docker.io/${DOCKERHUB_IMAGE}${SUFFIX}:jazzy-${CI_COMMIT_SHA}-${CI_PIPELINE_ID}-${ARCH}"
+    - buildah bud --pull --arch "$ARCH" --build-arg "ROS_BASE_IMAGE=$ROS_BASE_IMAGE" --label "org.opencontainers.image.revision=$INTERFACE_REVISION" --label "platform.ros-base.digest=$ROS_BASE_DIGEST" --file containers/Dockerfile.jazzy-zenoh --tag "$ARCH_IMAGE" .
+    - test "$(buildah inspect --type image --format '{{.OCIv1.Architecture}}' "$ARCH_IMAGE")" = "$ARCH"
+    - buildah from --name smoke "$ARCH_IMAGE"
+    - |
+      buildah run smoke -- /platform_entrypoint.sh bash -c '
+        set -e
+        ! command -v git
+        for package in platform_common_interfaces platform_control_interfaces platform_device_interfaces platform_episode_interfaces; do
+          ros2 pkg prefix "$package"
+        done
+        ros2 interface list
+        ros2 pkg executables rmw_zenoh_cpp | grep -q rmw_zenohd
+        python3 -c '\''import importlib; from rclpy.utilities import get_rmw_implementation_identifier; [importlib.import_module(package + ".msg") for package in ("platform_common_interfaces", "platform_control_interfaces", "platform_device_interfaces", "platform_episode_interfaces")]; assert get_rmw_implementation_identifier() == "rmw_zenoh_cpp"'\''
+      '
+    - buildah rm smoke
+    - buildah push "$ARCH_IMAGE" "docker://$ARCH_IMAGE"
+
+ros-base:cpu:amd64:
+  extends: .ros-base-native
+  tags: ["$AMD64_RUNNER_TAG"]
+  variables: {ARCH: amd64, VARIANT: cpu, SUFFIX: ""}
+
+ros-base:cpu:arm64:
+  extends: .ros-base-native
+  tags: ["$ARM64_RUNNER_TAG"]
+  variables: {ARCH: arm64, VARIANT: cpu, SUFFIX: ""}
+
+ros-base:cuda:amd64:
+  extends: .ros-base-native
+  tags: ["$AMD64_RUNNER_TAG"]
+  variables: {ARCH: amd64, VARIANT: cuda, SUFFIX: "-cuda"}
+
+ros-base:jetson:arm64:
+  extends: .ros-base-native
+  tags: ["$ARM64_RUNNER_TAG"]
+  variables: {ARCH: arm64, VARIANT: jetson, SUFFIX: "-jetson"}
+
+.ros-base-manifest:
+  extends: .ros-base-registry
+  stage: publish
+  tags: ["$AMD64_RUNNER_TAG"]
+  resource_group: dockerhub-ros-base${SUFFIX}
+  script:
+    - export IMAGE="docker.io/${DOCKERHUB_IMAGE}${SUFFIX}"
+    - export BUILD_TAG="jazzy-${CI_COMMIT_SHA}-${CI_PIPELINE_ID}"
+    - buildah manifest create platform
+    - for arch in $ARCHS; do buildah manifest add platform "docker://${IMAGE}:${BUILD_TAG}-${arch}"; done
+    - buildah manifest push --all platform "docker://${IMAGE}:${BUILD_TAG}"
+    - |
+      if test -n "$ROS_BASE_RELEASE_TAG"; then
+        buildah manifest push --all platform "docker://${IMAGE}:jazzy-${ROS_BASE_RELEASE_TAG}"
+      elif test "$ROS_BASE_PUBLISH_ROLLING" = true; then
+        buildah manifest push --all platform "docker://${IMAGE}:jazzy"
+        buildah manifest push --all platform "docker://${IMAGE}:latest"
+      fi
+
+ros-base:cpu:manifest:
+  extends: .ros-base-manifest
+  needs: ["ros-base:cpu:amd64", "ros-base:cpu:arm64"]
+  variables: {SUFFIX: "", ARCHS: "amd64 arm64"}
+
+ros-base:cuda:manifest:
+  extends: .ros-base-manifest
+  needs: ["ros-base:cuda:amd64"]
+  variables: {SUFFIX: "-cuda", ARCHS: "amd64"}
+
+ros-base:jetson:manifest:
+  extends: .ros-base-manifest
+  needs: ["ros-base:jetson:arm64"]
+  variables: {SUFFIX: "-jetson", ARCHS: "arm64"}

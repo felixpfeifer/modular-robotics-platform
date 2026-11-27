@@ -1,0 +1,5 @@
+# Development overlay; build the ordinary robot image first.
+FROM mrp-robot-so101:latest
+COPY src/so101_bringup/launch/arm.launch.py /app/src/so101_bringup/launch/arm.launch.py
+COPY src/so101_bringup/worlds/tabletop.sdf /app/install/so101_bringup/share/so101_bringup/worlds/tabletop.sdf
+RUN for package in git git-man; do if dpkg -s "$package" >/dev/null 2>&1; then apt-get purge -y "$package" || exit 1; fi; done && ! command -v git

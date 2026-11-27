@@ -1,0 +1,6 @@
+# Include registered devices that are currently unavailable.
+bool include_unavailable
+---
+# Descriptor and state arrays align by device_id, not by array index.
+platform_device_interfaces/DeviceDescriptor[<=256] descriptors
+platform_device_interfaces/DeviceState[<=256] states

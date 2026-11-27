@@ -1,0 +1,237 @@
+{
+  "schema_version": "1.0",
+  "examples": [
+    {
+      "type": "platform_common_interfaces/msg/ComponentIdentity",
+      "valid": {"payload": {"component_id": "quest_bridge_1", "name": "Quest Bridge", "semantic_version": "0.1.0", "source_revision": "0123456789abcdef", "build_id": "build-42"}},
+      "invalid": [
+        {"reason": "component_id is empty", "payload": {"component_id": ""}},
+        {"reason": "semantic_version is not SemVer", "payload": {"semantic_version": "latest"}}
+      ]
+    },
+    {
+      "type": "platform_common_interfaces/msg/ConfigurationReference",
+      "valid": {"payload": {"schema_id": "teleop", "schema_version": "1.0.0", "configuration_id": "teleop-default", "content_hash": "sha256:abc123"}},
+      "invalid": [
+        {"reason": "missing algorithm prefix", "payload": {"content_hash": "abc123"}},
+        {"reason": "schema_id exceeds 64 characters", "payload": {"schema_id": "<65 characters>"}}
+      ]
+    },
+    {
+      "type": "platform_common_interfaces/msg/ProvenanceReference",
+      "valid": {"payload": {"component": {"component_id": "recorder"}, "configuration": {"configuration_id": "record-v1"}, "calibration_id": "camera-cal-4", "calibration_hash": "sha256:def456"}},
+      "invalid": [
+        {"reason": "calibration hash is absent for a present calibration ID", "payload": {"calibration_id": "camera-cal-4", "calibration_hash": ""}},
+        {"reason": "mutable source revision", "payload": {"component": {"source_revision": "main"}}}
+      ]
+    },
+    {
+      "type": "platform_device_interfaces/msg/DeviceDescriptor",
+      "valid": {"payload": {"device_id": "left_arm", "adapter_type": "joint_robot", "model": "so101", "role": "manipulator", "ros_namespace": "/devices/left_arm", "capabilities": ["joint_position"]}},
+      "invalid": [
+        {"reason": "device ID is empty", "payload": {"device_id": ""}},
+        {"reason": "more than 32 capabilities", "payload": {"capabilities": "<33 entries>"}}
+      ]
+    },
+    {
+      "type": "platform_device_interfaces/msg/DeviceState",
+      "valid": {"payload": {"device_id": "left_arm", "lifecycle_state": 3, "availability": 3, "connected": true}},
+      "invalid": [
+        {"reason": "unknown device ID", "payload": {"device_id": ""}},
+        {"reason": "enumeration value is outside constants", "payload": {"availability": 255}}
+      ]
+    },
+    {
+      "type": "platform_device_interfaces/msg/DeviceStateArray",
+      "valid": {"payload": {"states": [{"device_id": "left_arm"}, {"device_id": "right_arm"}]}},
+      "invalid": [
+        {"reason": "duplicate device IDs", "payload": {"states": [{"device_id": "left_arm"}, {"device_id": "left_arm"}]}},
+        {"reason": "more than 256 states", "payload": {"states": "<257 entries>"}}
+      ]
+    },
+    {
+      "type": "platform_device_interfaces/msg/CalibrationReference",
+      "valid": {"payload": {"calibration_id": "cam-arm-4", "calibration_type": "extrinsic", "version": "1.0.0", "content_hash": "sha256:123", "parent_frame": "base", "child_frame": "camera"}},
+      "invalid": [
+        {"reason": "only one frame is supplied", "payload": {"parent_frame": "base", "child_frame": ""}},
+        {"reason": "content hash is mutable or absent", "payload": {"content_hash": ""}}
+      ]
+    },
+    {
+      "type": "platform_device_interfaces/srv/ListDevices",
+      "valid": {"payload": {"request": {"include_unavailable": true}, "response": {"descriptors": [], "states": []}}},
+      "invalid": [
+        {"reason": "response has duplicate descriptor IDs", "payload": {"response": {"descriptors": ["left_arm", "left_arm"]}}},
+        {"reason": "response exceeds 256 entries", "payload": {"response": {"states": "<257 entries>"}}}
+      ]
+    },
+    {
+      "type": "platform_device_interfaces/srv/GetDeviceState",
+      "valid": {"payload": {"request": {"device_id": "left_arm"}, "response": {"found": true, "reason": ""}}},
+      "invalid": [
+        {"reason": "empty lookup ID", "payload": {"request": {"device_id": ""}}},
+        {"reason": "found response IDs do not match request", "payload": {"request": {"device_id": "left_arm"}, "response": {"found": true, "descriptor": {"device_id": "right_arm"}}}}
+      ]
+    },
+    {
+      "type": "platform_control_interfaces/msg/TeleopState",
+      "valid": {"payload": {"header": {"frame_id": "world"}, "source_id": "quest_left", "gripper_position": 0.5, "buttons": 3, "clutch_engaged": false, "tracking_valid": true, "pose_valid": true, "velocity_valid": true}},
+      "invalid": [
+        {"reason": "gripper is outside [0,1]", "payload": {"gripper_position": 1.1}},
+        {"reason": "valid pose has no frame", "payload": {"header": {"frame_id": ""}, "pose_valid": true}}
+      ]
+    },
+    {
+      "type": "platform_control_interfaces/msg/CartesianIntent",
+      "valid": {"payload": {"source_id": "retargeter", "target_id": "left_arm", "issued_at": {"sec": 10}, "valid_until": {"sec": 11}, "reference_frame": "base", "mode": 0, "max_linear_speed": 0.2, "max_angular_speed": 0.5}},
+      "invalid": [
+        {"reason": "deadline is zero", "payload": {"valid_until": {"sec": 0, "nanosec": 0}}},
+        {"reason": "reference frame is empty", "payload": {"reference_frame": ""}}
+      ]
+    },
+    {
+      "type": "platform_control_interfaces/msg/JointIntent",
+      "valid": {"payload": {"source_id": "retargeter", "target_id": "left_arm", "joint_names": ["joint1", "joint2"], "positions": [0.1, 0.2], "velocities": [], "accelerations": []}},
+      "invalid": [
+        {"reason": "positions do not align with names", "payload": {"joint_names": ["joint1", "joint2"], "positions": [0.1]}},
+        {"reason": "more than 32 joints", "payload": {"joint_names": "<33 entries>"}}
+      ]
+    },
+    {
+      "type": "platform_control_interfaces/msg/CommandLease",
+      "valid": {"payload": {"owner_id": "retargeter", "target_id": "left_arm", "issued_at": {"sec": 10}, "expires_at": {"sec": 15}}},
+      "invalid": [
+        {"reason": "expiry precedes issue time", "payload": {"issued_at": {"sec": 10}, "expires_at": {"sec": 9}}},
+        {"reason": "owner is empty", "payload": {"owner_id": ""}}
+      ]
+    },
+    {
+      "type": "platform_control_interfaces/msg/CommandLeaseStatus",
+      "valid": {"payload": {"owner_id": "retargeter", "target_id": "left_arm", "state": 2, "reason_code": 0, "reason": ""}},
+      "invalid": [
+        {"reason": "state is outside constants", "payload": {"state": 255}},
+        {"reason": "active lease has all-zero lease ID", "payload": {"state": 2, "lease_id": "<all zero>"}}
+      ]
+    },
+    {
+      "type": "platform_control_interfaces/msg/BindingDescriptor",
+      "valid": {"payload": {"binding_id": "quest-left-arm", "source_id": "quest_left", "mapper_id": "quest_mapper", "solver_id": "so101_ik", "target_id": "left_arm"}},
+      "invalid": [
+        {"reason": "binding ID is empty", "payload": {"binding_id": ""}},
+        {"reason": "source and target are identical", "payload": {"source_id": "left_arm", "target_id": "left_arm"}}
+      ]
+    },
+    {
+      "type": "platform_control_interfaces/msg/BindingState",
+      "valid": {"payload": {"binding_id": "quest-left-arm", "enabled": true, "eligible": true, "owns_command_lease": false, "reason_code": 0}},
+      "invalid": [
+        {"reason": "binding ID is empty", "payload": {"binding_id": ""}},
+        {"reason": "ownership is true with all-zero lease ID", "payload": {"owns_command_lease": true, "lease_id": "<all zero>"}}
+      ]
+    },
+    {
+      "type": "platform_control_interfaces/msg/SafetyStatus",
+      "valid": {"payload": {"component_id": "safety_main", "level": 1, "motion_permitted": true, "limiting_condition": 0, "summary": "normal", "related_ids": []}},
+      "invalid": [
+        {"reason": "fault level permits motion", "payload": {"level": 4, "motion_permitted": true}},
+        {"reason": "more than 32 related IDs", "payload": {"related_ids": "<33 entries>"}}
+      ]
+    },
+    {
+      "type": "platform_control_interfaces/msg/SafetyEvent",
+      "valid": {"payload": {"source_id": "safety_main", "target_id": "left_arm", "severity": 1, "event_code": 20, "summary": "speed limited", "detail": "entered monitored zone"}},
+      "invalid": [
+        {"reason": "event UUID is all zero", "payload": {"event_id": "<all zero>"}},
+        {"reason": "detail exceeds 1024 characters", "payload": {"detail": "<1025 characters>"}}
+      ]
+    },
+    {
+      "type": "platform_control_interfaces/msg/CommandRejection",
+      "valid": {"payload": {"source_id": "arbitrator", "target_id": "left_arm", "reason_code": 41, "reason": "lease expired"}},
+      "invalid": [
+        {"reason": "command UUID is all zero", "payload": {"command_id": "<all zero>"}},
+        {"reason": "reason exceeds 256 characters", "payload": {"reason": "<257 characters>"}}
+      ]
+    },
+    {
+      "type": "platform_control_interfaces/srv/AcquireCommandLease",
+      "valid": {"payload": {"request": {"source_id": "retargeter", "target_id": "left_arm", "requested_duration": {"sec": 5}}, "response": {"granted": true, "reason_code": 0, "reason": ""}}},
+      "invalid": [
+        {"reason": "requested duration is zero", "payload": {"request": {"requested_duration": {"sec": 0, "nanosec": 0}}}},
+        {"reason": "response request ID differs", "payload": {"response": {"request_id": "<different UUID>"}}}
+      ]
+    },
+    {
+      "type": "platform_control_interfaces/srv/ReleaseCommandLease",
+      "valid": {"payload": {"request": {"source_id": "retargeter", "target_id": "left_arm"}, "response": {"released": true, "reason_code": 0, "reason": ""}}},
+      "invalid": [
+        {"reason": "lease ID is all zero", "payload": {"request": {"lease_id": "<all zero>"}}},
+        {"reason": "response request ID differs", "payload": {"response": {"request_id": "<different UUID>"}}}
+      ]
+    },
+    {
+      "type": "platform_control_interfaces/srv/SetActiveBinding",
+      "valid": {"payload": {"request": {"binding_id": "quest-left-arm", "enabled": true}, "response": {"accepted": true, "reason_code": 0, "reason": ""}}},
+      "invalid": [
+        {"reason": "binding ID is empty", "payload": {"request": {"binding_id": ""}}},
+        {"reason": "accepted response has a failure reason", "payload": {"response": {"accepted": true, "reason_code": 42}}}
+      ]
+    },
+    {
+      "type": "platform_episode_interfaces/msg/EpisodeState",
+      "valid": {"payload": {"task_id": "pick-cube", "state": 2, "reason_code": 0, "summary": "recording"}},
+      "invalid": [
+        {"reason": "episode UUID is all zero", "payload": {"episode_id": "<all zero>"}},
+        {"reason": "state is outside constants", "payload": {"state": 255}}
+      ]
+    },
+    {
+      "type": "platform_episode_interfaces/msg/EpisodeEvent",
+      "valid": {"payload": {"source_id": "operator_ui", "kind": 0, "event_code": 1, "summary": "grasp complete", "detail": ""}},
+      "invalid": [
+        {"reason": "event UUID is all zero", "payload": {"event_id": "<all zero>"}},
+        {"reason": "detail exceeds 1024 characters", "payload": {"detail": "<1025 characters>"}}
+      ]
+    },
+    {
+      "type": "platform_episode_interfaces/msg/EpisodeMetadata",
+      "valid": {"payload": {"workcell_id": "lab-1", "task_id": "pick-cube", "recording_profile_id": "default", "producers": [], "calibration_ids": ["cam-arm-4"]}},
+      "invalid": [
+        {"reason": "episode UUID is all zero", "payload": {"episode_id": "<all zero>"}},
+        {"reason": "more than 32 producer references", "payload": {"producers": "<33 entries>"}}
+      ]
+    },
+    {
+      "type": "platform_episode_interfaces/msg/ValidationFinding",
+      "valid": {"payload": {"rule_id": "timestamps-monotonic", "severity": 2, "disposition": 0, "start_time": {"sec": 10}, "end_time": {"sec": 11}, "summary": "timestamp regression", "evidence_reference": "events/42"}},
+      "invalid": [
+        {"reason": "end precedes start", "payload": {"start_time": {"sec": 11}, "end_time": {"sec": 10}}},
+        {"reason": "evidence reference exceeds 128 characters", "payload": {"evidence_reference": "<129 characters>"}}
+      ]
+    },
+    {
+      "type": "platform_episode_interfaces/srv/MarkEpisode",
+      "valid": {"payload": {"request": {"source_id": "operator_ui", "mark": 0, "annotation": "successful"}, "response": {"accepted": true, "reason_code": 0, "reason": ""}}},
+      "invalid": [
+        {"reason": "episode UUID is all zero", "payload": {"request": {"episode_id": "<all zero>"}}},
+        {"reason": "mark is outside constants", "payload": {"request": {"mark": 255}}}
+      ]
+    },
+    {
+      "type": "platform_episode_interfaces/action/RecordEpisode",
+      "valid": {"payload": {"goal": {"metadata": {"task_id": "pick-cube"}}, "feedback": {"state": 2, "bytes_recorded": 4096}, "result": {"complete": true, "artifact_disposition": 1, "artifact_id": "episode-42", "content_hash": "sha256:abc"}}},
+      "invalid": [
+        {"reason": "complete result has no artifact", "payload": {"result": {"complete": true, "artifact_id": ""}}},
+        {"reason": "canceled result omits partial disposition", "payload": {"result": {"complete": false, "artifact_disposition": 0}}}
+      ]
+    },
+    {
+      "type": "platform_episode_interfaces/action/ValidateEpisode",
+      "valid": {"payload": {"goal": {"artifact_id": "episode-42", "content_hash": "sha256:abc"}, "feedback": {"progress": 0.5, "completed_rules": 5, "total_rules": 10}, "result": {"valid": true, "findings": [], "report_reference": "reports/42"}}},
+      "invalid": [
+        {"reason": "progress exceeds one", "payload": {"feedback": {"progress": 1.1}}},
+        {"reason": "more than 256 findings", "payload": {"result": {"findings": "<257 entries>"}}}
+      ]
+    }
+  ]
+}

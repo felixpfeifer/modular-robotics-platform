@@ -1,0 +1,21 @@
+{
+  "schema_version": "robot-profile/v1",
+  "id": "so101",
+  "label": "SO-101",
+  "joint_names": [
+    "shoulder_pan_joint",
+    "shoulder_lift_joint",
+    "elbow_flex_joint",
+    "wrist_flex_joint",
+    "wrist_roll_joint",
+    "gripper_joint"
+  ],
+  "topics": {
+    "joint_states": "/joint_states",
+    "leader_joint_states": "/leader/joint_states"
+  },
+  "recorder_robot_config": {
+    "sim": "so101_sim.yaml",
+    "real": "so101.yaml"
+  }
+}

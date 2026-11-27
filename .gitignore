@@ -221,3 +221,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Monorepo: source directories named lib/ must not be ignored
+!application/frontend/src/lib/

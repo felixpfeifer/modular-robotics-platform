@@ -1,0 +1,66 @@
+stages: [image-check, test, image-build, image-publish]
+
+variables:
+  # Base images this repo is FROM; a scheduled pipeline rebuilds when one changes (docker-hub.yml).
+  IMAGE_BASES: |
+    mrp-control-arbiter all docker.io/${DOCKERHUB_USERNAME}/mrp-ros-base:latest
+  DEBIAN_FRONTEND: noninteractive
+  ROS_DISTRO: jazzy
+  # The Dockerfile expects the parent directory as context (COPY control_arbiter ...).
+  IMAGE_REPO_PATH: control_arbiter
+  IMAGE_CONTEXT: "."
+
+include:
+  - template: Security/SAST.gitlab-ci.yml
+  - local: .gitlab/ci/docker-hub.yml
+
+control_arbiter:test:
+  image: docker.io/felixpfeifer/mrp-ros-base:latest
+  stage: test
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends git python3-colcon-common-extensions python3-pytest python3-rosdep python3-vcstool ros-jazzy-ament-flake8
+    - mkdir -p .ci_ws/src
+    - ln -s "$CI_PROJECT_DIR" .ci_ws/src/control_arbiter
+  script:
+    - source /opt/platform/install/setup.bash
+    - rosdep update
+    - rosdep install --from-paths .ci_ws/src --ignore-src --rosdistro "$ROS_DISTRO" --skip-keys "platform_common_interfaces platform_control_interfaces" -r -y
+    - colcon --log-base .ci_ws/log build --base-paths .ci_ws/src --build-base .ci_ws/build --install-base .ci_ws/install --packages-up-to control_arbiter --event-handlers console_direct+
+    - source .ci_ws/install/setup.bash
+    - colcon --log-base .ci_ws/test-log test --base-paths .ci_ws/src --build-base .ci_ws/build --install-base .ci_ws/install --packages-select control_arbiter --event-handlers console_direct+
+    - colcon test-result --test-result-base .ci_ws/build --verbose
+    - ament_flake8 control_arbiter test launch
+  artifacts:
+    when: always
+    paths:
+      - .ci_ws/build/control_arbiter/test_results/
+      - .ci_ws/log/
+      - .ci_ws/test-log/
+    reports:
+      junit: .ci_ws/build/control_arbiter/test_results/**/*.xml
+    expire_in: 14 days
+
+build:mrp-control-arbiter:amd64:
+  extends: [.image-build, .image-amd64]
+  variables: &arbiter_image
+    IMAGE_NAME: mrp-control-arbiter
+    IMAGE_DOCKERFILE: control_arbiter/Dockerfile
+
+build:mrp-control-arbiter:arm64:
+  extends: [.image-build, .image-arm64]
+  variables: *arbiter_image
+
+publish:mrp-control-arbiter:
+  extends: .image-publish
+  variables: *arbiter_image
+  needs:
+    - job: base:check
+      optional: true
+      artifacts: true
+    - job: control_arbiter:test
+      artifacts: false
+    - job: build:mrp-control-arbiter:amd64
+      artifacts: false
+    - job: build:mrp-control-arbiter:arm64
+      artifacts: false

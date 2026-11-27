@@ -1,0 +1,18 @@
+schema_version: workspace-config/v1
+workspace:
+  id: local_so101
+  dataset_dir: /data/datasets/teleop
+  recording_profiles: ../recording_profiles.yaml
+  recording_profile_id: so101_vla_rgb_30_v1
+  task_catalog: ../task_catalog.yaml
+  task_id: default_demo
+  calibration:
+    id: so101-default
+    # Replace this example digest with the immutable deployed calibration artifact hash.
+    hash: sha256:8a95a459f89b4f8367854a729e65ca8e49e39ad62cff1ee70695757d7b75387a
+  producer:
+    source_revision: development
+  recorder:
+    preflight_min_free_gib: 10.0
+    runtime_reserve_gib: 5.0
+  command_bridge_enabled: true

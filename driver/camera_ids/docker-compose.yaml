@@ -1,0 +1,33 @@
+services:
+  camera_ids:
+    build:
+      # The image also builds mrp_camera_common: clone it next to this repository
+      # (driver workspace layout), see README.md.
+      context: ..
+      dockerfile: camera_ids/Dockerfile
+    # A real init as PID 1 forwards `docker stop` and reaps child processes.
+    init: true
+    image: mrp-camera-ids
+    container_name: camera_ids
+    restart: unless-stopped
+    # Host networking: ROS discovery, and the GigE daemon needs the real NICs.
+    network_mode: host
+    # The USB daemon talks to the camera over libusb and uploads its firmware, after
+    # which the camera re-enumerates with a new USB ID. Privileged + /dev survives that
+    # (and replugs).
+    privileged: true
+    devices:
+      - /dev:/dev
+    environment:
+      IDS_USB: "1"
+      # GigE uEye cameras: start the ETH daemon as well.
+      IDS_ETH: "0"
+    # Defaults: first free camera; the full sensor view is centre-cropped to 4:3 and
+    # scaled to 640x480 @ 30 FPS (never stretched), JPEG on image/compressed.
+    # Pick a camera / settings, e.g.:
+    #   command: ["--ros-args", "-p", "serial_number:=4102123456", "-p", "pixel_clock_mhz:=40"]
+    # Full sensor resolution:
+    #   command: ["--ros-args", "-p", "image_width:=0", "-p", "image_height:=0"]
+    # Settings saved from uEye Cockpit (mount the file):
+    #   volumes: ["./camera.ini:/config/camera.ini:ro"]
+    #   command: ["--ros-args", "-p", "parameter_file:=/config/camera.ini", "-p", "image_width:=0", "-p", "image_height:=0"]

@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>camera_ids</name>
+  <version>0.1.0</version>
+  <description>Lean IDS uEye (UI) camera driver for USB and GigE, built on the IDS Software Suite uEye API: JPEG CompressedImage</description>
+  <maintainer email="maintainers@example.invalid">MRP camera driver maintainers</maintainer>
+  <license>GPL-3.0-only</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>mrp_camera_common</depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>libopencv-dev</depend>
+  <!-- The IDS Software Suite (ueye.h, libueye_api) is proprietary and not in rosdep;
+       it is installed from a user-supplied archive, see README.md. -->
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

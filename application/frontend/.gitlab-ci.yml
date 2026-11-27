@@ -1,0 +1,133 @@
+image: node:22-alpine
+
+include:
+  - local: .gitlab/ci/docker-hub.yml
+
+stages:
+  - image-check
+  - verify
+  - image-build
+  - image-publish
+  - maintenance
+
+variables:
+  # Keep the Yarn cache inside the project so GitLab can cache it between pipelines.
+  YARN_ENABLE_GLOBAL_CACHE: "false"
+  YARN_CACHE_FOLDER: $CI_PROJECT_DIR/.yarn/cache
+
+# Node jobs only: a global before_script would also run in included template jobs
+# (secret_detection, buildah) whose images have no Node/corepack.
+# needs: [] keeps earlier-stage artifacts (.image-context/, gl-secret-detection-report.json, ...)
+# out of the checkout, where prettier/eslint would scan them.
+.yarn-cache:
+  needs: []
+  cache:
+    key:
+      files: [yarn.lock]
+    paths: [.yarn/cache/]
+  before_script:
+    - corepack enable
+    - yarn install --immutable
+
+# Run tests once per change: in the merge request pipeline when one is open, otherwise on the branch.
+.test-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: "$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS"
+      when: never
+    - if: '$CI_COMMIT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+
+quality:
+  extends: .yarn-cache
+  stage: verify
+  script:
+    - yarn format:check
+    - yarn lint
+    - yarn test
+    - yarn build
+  artifacts:
+    when: always
+    reports:
+      junit: test-results/unit.xml
+    paths:
+      - test-results/
+  rules:
+    - !reference [.test-rules, rules]
+
+browser-tests:
+  extends: .yarn-cache
+  stage: verify
+  image: mcr.microsoft.com/playwright:v1.55.0-noble
+  script:
+    - yarn test:e2e
+  artifacts:
+    when: always
+    reports:
+      junit: test-results/e2e.xml
+    paths:
+      - test-results/
+  rules:
+    - !reference [.test-rules, rules]
+
+# Set MRP_REAL_E2E=1 and allow this project's CI job token to read the backend.
+real-backend-browser-tests:
+  extends: .yarn-cache
+  stage: verify
+  image: mcr.microsoft.com/playwright:v1.55.0-noble
+  script:
+    - apt-get update && apt-get install -y --no-install-recommends git python3-venv
+    - git clone --depth 1 "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/global-dynamics/robot-foundation-models/modular-robotics-platform/applications/backend.git" ../backend
+    - python3 -m venv /tmp/mrp-e2e-venv
+    - /tmp/mrp-e2e-venv/bin/pip install -r ../backend/requirements.txt
+    - export PATH="/tmp/mrp-e2e-venv/bin:$PATH"
+    - yarn test:e2e:real
+  artifacts:
+    when: always
+    reports:
+      junit: test-results/e2e.xml
+    paths:
+      - test-results/
+  rules:
+    - if: '$MRP_REAL_E2E == "1" && ($CI_PIPELINE_SOURCE == "merge_request_event" || $CI_PIPELINE_SOURCE == "push")'
+
+renovate:
+  stage: maintenance
+  image:
+    name: renovate/renovate:latest
+    entrypoint: [""]
+  before_script: []
+  variables:
+    RENOVATE_PLATFORM: gitlab
+    RENOVATE_ENDPOINT: https://gitlab.com/api/v4/
+    RENOVATE_REPOSITORIES: $CI_PROJECT_PATH
+  script:
+    - renovate
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+
+build:mrp-frontend:amd64:
+  extends: [.image-build, .image-amd64]
+  variables: &frontend_image
+    IMAGE_NAME: mrp-frontend
+
+build:mrp-frontend:arm64:
+  extends: [.image-build, .image-arm64]
+  variables: *frontend_image
+
+publish:mrp-frontend:
+  extends: .image-publish
+  variables: *frontend_image
+  needs:
+    - job: base:check
+      optional: true
+      artifacts: true
+    - job: quality
+      artifacts: false
+      optional: true
+    - job: browser-tests
+      artifacts: false
+      optional: true
+    - job: build:mrp-frontend:amd64
+      artifacts: false
+    - job: build:mrp-frontend:arm64
+      artifacts: false

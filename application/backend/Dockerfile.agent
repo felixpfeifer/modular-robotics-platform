@@ -1,0 +1,11 @@
+FROM docker:cli
+RUN apk add --no-cache python3
+WORKDIR /app
+COPY application/backend/backend /app/backend
+COPY application/backend/deployment/agent.py /app/agent.py
+COPY application/backend/deployment/cell_plan.py application/backend/deployment/device_checks.py /app/
+COPY application/backend/deployment/devices.py /app/devices.py
+COPY core/cell_config/cell_config /app/core/cell_config
+RUN if apk info -e git >/dev/null; then apk del git; fi && ! command -v git
+ENV PYTHONPATH=/app/backend:/app/core
+ENTRYPOINT ["python3", "/app/agent.py"]

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "Europe/Berlin",
+  "labels": ["dependencies"],
+  "automergeType": "pr",
+  "platformAutomerge": true,
+  "packageRules": [
+    {
+      "description": "Auto-merge patch and minor updates",
+      "matchManagers": ["npm", "gitlabci"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "automerge": true
+    },
+    {
+      "description": "Manually review major updates",
+      "matchManagers": ["npm", "gitlabci"],
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ]
+}

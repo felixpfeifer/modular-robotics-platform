@@ -1,0 +1,7 @@
+schema_version: task-catalog/v1
+catalog_id: mock_so101_tasks_v1
+tasks:
+  pipeline_check:
+    instruction: "Exercise mock leader/follower tracking and camera recording. No physical task is performed."
+    recording_profile_id: mock_so101_webcam_v1
+    minimum_duration_seconds: 5.0

@@ -1,0 +1,3 @@
+# gtest ASSERT_* guards are invisible to the optional-access analysis.
+InheritParentConfig: true
+Checks: '-bugprone-unchecked-optional-access'

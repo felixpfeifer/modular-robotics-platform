@@ -1,0 +1,10 @@
+# Copy to follower.yaml or leader.yaml and fill in values for that physical arm.
+# homing_offset = raw servo position at the arm's zero pose - 2048
+# Warning: homing_offset and range limits are written to the servo EEPROM on startup.
+joints:
+  shoulder_pan:  {id: 1, homing_offset: 0}
+  shoulder_lift: {id: 2, homing_offset: 0}
+  elbow_flex:    {id: 3, homing_offset: 0}
+  wrist_flex:    {id: 4, homing_offset: 0}
+  wrist_roll:    {id: 5, homing_offset: 0}
+  gripper:       {id: 6, homing_offset: 0}

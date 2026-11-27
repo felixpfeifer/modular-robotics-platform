@@ -1,0 +1,16 @@
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "commitizen"
+version = "0.1.0"
+version_scheme = "semver2"
+tag_format = "v$version"
+update_changelog_on_bump = true
+major_version_zero = true
+annotated_tag = true
+version_files = [
+  "VERSION",
+  "platform_common_interfaces/package.xml:version",
+  "platform_device_interfaces/package.xml:version",
+  "platform_control_interfaces/package.xml:version",
+  "platform_episode_interfaces/package.xml:version",
+]

@@ -1,0 +1,50 @@
+---
+services:
+  # ---- Recorder node: captures teleoperation data into ROS2 bags ----
+  episode_recorder:
+    build:
+      context: ..
+      dockerfile: recorder/Dockerfile
+    image: mrp-episode-recorder
+    container_name: episode_recorder
+    restart: unless-stopped
+    network_mode: host
+    stdin_open: true   # Required for keyboard input
+    tty: true
+    volumes:
+      - recorder_data:/data/datasets
+    # Override dataset dir if needed:
+    # command: ["--ros-args", "-p", "dataset_dir:=/data/datasets/my_task"]
+
+  # ---- Conversion: accepted MCAP episodes -> LeRobot Dataset v3 (CPU) ----
+  # Run manually with the arguments shown in README.md.
+  convert:
+    build:
+      context: ..
+      dockerfile: recorder/Dockerfile.convert
+    image: mrp-episode-converter
+    container_name: episode_converter
+    volumes:
+      - recorder_data:/data/datasets
+      - lerobot_data:/data/lerobot
+    profiles:
+      - tools  # Only runs on-demand, not with `docker compose up`
+
+  # ---- Explicit Hub upload: never part of recording or conversion ----
+  upload:
+    build:
+      context: ..
+      dockerfile: recorder/Dockerfile.convert
+    image: mrp-episode-converter
+    volumes:
+      - lerobot_data:/data/lerobot:ro
+      - ${HF_HOME:-${HOME}/.cache/huggingface}:/root/.cache/huggingface:ro
+    entrypoint: ["/bin/bash", "-c", "source /opt/platform/install/setup.bash && exec python /app/episode_recorder_py/upload_lerobot.py \"$$@\"", "--"]
+    profiles:
+      - tools
+
+volumes:
+  recorder_data:
+    driver: local
+  lerobot_data:
+    driver: local

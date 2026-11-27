@@ -1,0 +1,28 @@
+# mrp_camera_common has no image: the camera drivers build it into theirs.
+# Every driver pipeline clones this project, so allow their CI_JOB_TOKEN
+# (Settings > CI/CD > Job token permissions).
+stages:
+  - test
+
+variables:
+  DEBIAN_FRONTEND: noninteractive
+
+# Format, build with warnings as errors, unit tests, clang-tidy and an ASan/UBSan
+# test run; the same script checks every camera driver.
+common:test:
+  image: docker.io/felixpfeifer/mrp-ros-base:latest
+  stage: test
+  script:
+    - ci/driver-check.sh mrp_camera_common
+  artifacts:
+    when: always
+    paths: [build/mrp_camera_common/test_results/, build-asan/mrp_camera_common/test_results/, log/, test-log/]
+    reports:
+      junit: build/mrp_camera_common/test_results/**/*.xml
+    expire_in: 14 days
+
+ci:shellcheck:
+  image: koalaman/shellcheck-alpine:stable
+  stage: test
+  script:
+    - shellcheck ci/driver-check.sh

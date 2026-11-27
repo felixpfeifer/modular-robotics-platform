@@ -1,0 +1,7 @@
+string<=64 device_id
+---
+bool found
+platform_device_interfaces/DeviceDescriptor descriptor
+platform_device_interfaces/DeviceState state
+# Empty when found is true.
+string<=256 reason

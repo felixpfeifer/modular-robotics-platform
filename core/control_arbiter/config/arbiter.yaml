@@ -1,0 +1,15 @@
+control_arbiter:
+  ros__parameters:
+    active_source: none
+    sources: [teleop, policy]
+    joint_names:
+      - shoulder_pan_joint
+      - shoulder_lift_joint
+      - elbow_flex_joint
+      - wrist_flex_joint
+      - wrist_roll_joint
+      - gripper_joint
+    joint_states_topic: /joint_states
+    output_topic: /platform/control/joint_intent
+    source_timeout_ms: 200
+    max_handover_jump_rad: 0.15

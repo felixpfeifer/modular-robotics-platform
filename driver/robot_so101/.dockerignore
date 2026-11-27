@@ -1,0 +1,10 @@
+# Keep local secrets, git metadata and colcon output out of local image builds.
+# (CI builds only use git-tracked files; see .gitlab/ci/docker-hub.yml.)
+.git
+**/.git
+.env
+.env.*
+!.env.example
+build
+install
+log

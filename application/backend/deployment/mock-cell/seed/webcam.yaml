@@ -1,0 +1,12 @@
+schema_version: camera-config/v1
+camera:
+  name: webcam
+  topic: /webcam/image/compressed
+  type: sensor_msgs/msg/CompressedImage
+  width: 640
+  height: 480
+  format: jpeg
+  fps: 30.0
+  fps_tolerance: 0.6
+  minimum_coverage: 0.98
+  maximum_gap_ms: 75.0

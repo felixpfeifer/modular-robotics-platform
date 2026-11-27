@@ -1,0 +1,3 @@
+[submodule "driver/robot_so101/src/ros2_so_arm"]
+	path = driver/robot_so101/src/ros2_so_arm
+	url = https://github.com/ros-physical-ai/ros2_so_arm.git

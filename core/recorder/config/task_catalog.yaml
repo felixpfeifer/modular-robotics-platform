@@ -1,0 +1,11 @@
+schema_version: task-catalog/v1
+catalog_id: so101_tasks_v1
+tasks:
+  default_demo:
+    instruction: "Complete the configured tabletop manipulation task."
+    recording_profile_id: so101_vla_rgb_30_v1
+    minimum_duration_seconds: 2.0
+  red_cube_to_rectangle:
+    instruction: "Grasp the red cube and place it completely inside the green rectangle in front of the robot."
+    recording_profile_id: so101_vla_sim_dual_v1
+    minimum_duration_seconds: 5.0

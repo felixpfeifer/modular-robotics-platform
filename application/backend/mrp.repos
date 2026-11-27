@@ -1,0 +1,23 @@
+# Observed source revisions. Local uncommitted changes are not included in these pins.
+# Review/commit integration changes and repin before a release.
+repositories:
+  core/recorder:
+    type: git
+    url: git@gitlab.com:global-dynamics/robot-foundation-models/modular-robotics-platform/core/recorder.git
+    version: 1ae1162ab9a15b3667cb798f78db32eca0094414
+  core/control_arbiter:
+    type: git
+    url: git@gitlab.com:global-dynamics/robot-foundation-models/modular-robotics-platform/core/control_arbiter.git
+    version: a67888504bd25d0d0088e3398a590b66afcf51d5
+  core/cell_config:
+    type: git
+    url: git@gitlab.com:global-dynamics/robot-foundation-models/modular-robotics-platform/core/cell_config.git
+    version: 6513832b2a390a587babaeb0c416ecf1a5600b6a
+  core/ros-interfaces:
+    type: git
+    url: git@gitlab.com:global-dynamics/robot-foundation-models/modular-robotics-platform/foundation/ros-interfaces.git
+    version: 2e2a70fab4ed11029ddda95f194dd721f2c07a16
+  driver/robot_so101:
+    type: git
+    url: git@gitlab.com:global-dynamics/robot-foundation-models/modular-robotics-platform/drivers/robot_so101.git
+    version: 1d53481aa4158060e013b3f2636f0b36d7c309e2

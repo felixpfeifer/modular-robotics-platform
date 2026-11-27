@@ -1,0 +1,59 @@
+ARG ROS_BASE_IMAGE=ros:jazzy-ros-base
+FROM ${ROS_BASE_IMAGE} AS base
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# The CUDA (amd64) and Jetson Orin (arm64) variants start from an NVIDIA Ubuntu 24.04 image
+# without ROS, so install ROS 2 Jazzy first. The plain variant already has it.
+RUN if [ ! -f /opt/ros/jazzy/setup.bash ]; then \
+      apt-get update \
+      && apt-get install --yes --no-install-recommends ca-certificates curl gnupg \
+      && curl -fsSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+         -o /usr/share/keyrings/ros-archive-keyring.gpg \
+      && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo "$UBUNTU_CODENAME") main" \
+         > /etc/apt/sources.list.d/ros2.list \
+      && apt-get update \
+      && apt-get install --yes --no-install-recommends ros-jazzy-ros-base \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
+ENV ROS_DISTRO=jazzy
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+       ros-jazzy-diagnostic-msgs \
+       ros-jazzy-geometry-msgs \
+       ros-jazzy-rmw-zenoh-cpp \
+       ros-jazzy-rosidl-default-runtime \
+       ros-jazzy-unique-identifier-msgs \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM base AS builder
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+       build-essential \
+       python3-colcon-common-extensions \
+       ros-jazzy-rosidl-default-generators \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /ws
+COPY platform_common_interfaces src/platform_common_interfaces
+COPY platform_control_interfaces src/platform_control_interfaces
+COPY platform_device_interfaces src/platform_device_interfaces
+COPY platform_episode_interfaces src/platform_episode_interfaces
+
+RUN ["/bin/bash", "-o", "pipefail", "-c", "source /opt/ros/jazzy/setup.bash && colcon build --merge-install --install-base /opt/platform/install --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF"]
+
+FROM base AS runtime
+
+RUN for package in git git-man; do if dpkg -s "$package" >/dev/null 2>&1; then apt-get purge -y "$package" || exit 1; fi; done \
+   && ! command -v git
+
+COPY --from=builder /opt/platform/install /opt/platform/install
+COPY containers/ros-base-entrypoint.sh /platform_entrypoint.sh
+RUN chmod 0755 /platform_entrypoint.sh
+
+ENV RMW_IMPLEMENTATION=rmw_zenoh_cpp
+
+ENTRYPOINT ["/platform_entrypoint.sh"]
+CMD ["bash"]

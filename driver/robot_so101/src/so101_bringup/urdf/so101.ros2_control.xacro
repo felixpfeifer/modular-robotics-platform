@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<!-- Plugged into so_arm101.urdf.xacro through its ros2_control_file argument. -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="role" default="follower" />
+  <xacro:arg name="joint_config_file" default="" />
+
+  <xacro:macro name="so101_joint" params="name id passive">
+    <joint name="${name}">
+      <param name="id">${id}</param>
+      <param name="initial_position">0.0</param>
+      <!-- The Feetech driver only enables torque on joints with a command interface. -->
+      <xacro:unless value="${passive}">
+        <command_interface name="position" />
+      </xacro:unless>
+      <state_interface name="position" />
+      <state_interface name="velocity" />
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="ros2_control" params="prefix ros2_control_hardware_type usb_port">
+    <!-- Only a real leader is passive: a simulated one needs position control to hold against gravity. -->
+    <xacro:property name="passive" value="${'$(arg role)' == 'leader' and ros2_control_hardware_type == 'real'}" />
+    <ros2_control name="SO_ARM101" type="system">
+      <hardware>
+        <xacro:if value="${ros2_control_hardware_type == 'mock_components'}">
+          <plugin>mock_components/GenericSystem</plugin>
+        </xacro:if>
+        <xacro:if value="${ros2_control_hardware_type == 'real'}">
+          <plugin>feetech_ros2_driver/FeetechHardwareInterface</plugin>
+          <param name="usb_port">${usb_port}</param>
+          <param name="joint_config_file">$(arg joint_config_file)</param>
+        </xacro:if>
+        <xacro:if value="${ros2_control_hardware_type == 'gazebo'}">
+          <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+        </xacro:if>
+      </hardware>
+      <xacro:so101_joint name="${prefix}shoulder_pan_joint" id="1" passive="${passive}" />
+      <xacro:so101_joint name="${prefix}shoulder_lift_joint" id="2" passive="${passive}" />
+      <xacro:so101_joint name="${prefix}elbow_flex_joint" id="3" passive="${passive}" />
+      <xacro:so101_joint name="${prefix}wrist_flex_joint" id="4" passive="${passive}" />
+      <xacro:so101_joint name="${prefix}wrist_roll_joint" id="5" passive="${passive}" />
+      <xacro:so101_joint name="${prefix}gripper_joint" id="6" passive="${passive}" />
+    </ros2_control>
+  </xacro:macro>
+</robot>

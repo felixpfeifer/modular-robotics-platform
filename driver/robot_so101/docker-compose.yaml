@@ -1,0 +1,129 @@
+# Use ./so101 to start these; it sets the profiles and environment for you.
+x-common: &common
+  image: mrp-robot-so101
+  build: .
+  network_mode: host
+  ipc: host          # Fast DDS shared memory between containers
+  restart: "no"      # An arm must never power back on by itself
+
+x-ros-env: &ros-env
+  RMW: ${RMW:-zenoh}
+  ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+  # Always go through the router at 127.0.0.1 (not "localhost", which resolves to
+  # IPv6 first). Multicast is off so every client behaves the same, in or out of Docker.
+  ZENOH_CONFIG_OVERRIDE: '${ZENOH_CONFIG_OVERRIDE:-connect/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false}'
+
+x-arm: &arm
+  <<: *common
+  command: ["arm"]
+  # All of /dev plus the tty major numbers: ports can be chosen at runtime and
+  # replugged, without Compose failing when a device is absent.
+  volumes:
+    - /dev:/dev
+    - ./config/calibration:/calibration:ro
+  device_cgroup_rules:
+    - "c 166:* rmw"  # ttyACM
+    - "c 188:* rmw"  # ttyUSB
+
+x-gui: &gui
+  <<: *common
+  command: ["rviz"]
+  healthcheck: {disable: true}
+  volumes:
+    - ${X11_SOCKET:-/mnt/wslg/.X11-unix}:/tmp/.X11-unix
+
+services:
+  zenoh_router:
+    <<: *common
+    container_name: so101_zenoh_router
+    profiles: [zenoh]
+    # Published instead of host-networked: on Docker Desktop (WSL2) that is what
+    # makes 127.0.0.1:7447 reachable from WSL as well as from the other containers.
+    network_mode: bridge
+    ports:
+      - "7447:7447"
+    command: ["zenoh-router"]
+    healthcheck: {disable: true}
+    environment:
+      RMW: zenoh
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+
+  so101_follower:
+    <<: *arm
+    container_name: so101_follower
+    profiles: [follower]
+    environment:
+      <<: *ros-env
+      ROLE: follower
+      # Empty namespace keeps the topics core/recorder/config/robots/so101.yaml expects.
+      NAMESPACE: ${FOLLOWER_NAMESPACE:-}
+      BACKEND: ${FOLLOWER_BACKEND:-mock}
+      USB_PORT: ${FOLLOWER_PORT:-/dev/ttyACM0}
+      CALIBRATION_FILE: ${FOLLOWER_CALIBRATION:-}
+      GAZEBO_GUI: ${FOLLOWER_GAZEBO_GUI:-false}
+      GZ_PARTITION: so101_follower
+
+  so101_leader:
+    <<: *arm
+    container_name: so101_leader
+    profiles: [leader]
+    environment:
+      <<: *ros-env
+      ROLE: leader
+      NAMESPACE: ${LEADER_NAMESPACE:-leader}
+      BACKEND: ${LEADER_BACKEND:-mock}
+      USB_PORT: ${LEADER_PORT:-/dev/ttyACM1}
+      CALIBRATION_FILE: ${LEADER_CALIBRATION:-}
+      GAZEBO_GUI: ${LEADER_GAZEBO_GUI:-false}
+      GZ_PARTITION: so101_leader
+
+  rviz_follower:
+    <<: *gui
+    container_name: so101_rviz_follower
+    profiles: [rviz-follower]
+    environment:
+      <<: *ros-env
+      DISPLAY: ${DISPLAY:-:0}
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      NAMESPACE: ${FOLLOWER_NAMESPACE:-}
+      BACKEND: ${FOLLOWER_BACKEND:-mock}
+
+  rviz_leader:
+    <<: *gui
+    container_name: so101_rviz_leader
+    profiles: [rviz-leader]
+    environment:
+      <<: *ros-env
+      DISPLAY: ${DISPLAY:-:0}
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      NAMESPACE: ${LEADER_NAMESPACE:-leader}
+      BACKEND: ${LEADER_BACKEND:-mock}
+
+  # ----- Gazebo simulation (GUI) -----
+  # Spawns the SO-ARM101 in the Gazebo physics simulator with RViz
+  # visualisation.  Requires X11 forwarding (`xhost +local:docker` on the
+  # host).
+  #
+  # IMPORTANT: Do NOT run this service together with so101_follower — both use
+  # host networking and their controller managers will collide.  Start only
+  # the gazebo service by naming it explicitly:
+  #   docker compose --profile gazebo up gazebo --build
+  gazebo:
+    build:
+      context: .
+      dockerfile: Dockerfile.gazebo
+    image: mrp-robot-so101-gazebo
+    container_name: robot_so101_gazebo
+    network_mode: host
+    ipc: host
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    # Default: SO-ARM101 with Gazebo GUI and RViz enabled.
+    # Override arm_id to simulate the SO-ARM100 instead.
+    command: ["arm_id:=so_arm101", "gazebo_gui:=true", "launch_rviz:=true"]
+    profiles:
+      - gazebo

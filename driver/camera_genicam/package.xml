@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>camera_genicam</name>
+  <version>0.1.0</version>
+  <description>Lean GenICam camera driver (GigE Vision / USB3 Vision, any vendor) built on Aravis: JPEG CompressedImage</description>
+  <maintainer email="maintainers@example.invalid">MRP camera driver maintainers</maintainer>
+  <license>GPL-3.0-only</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>pkg-config</buildtool_depend>
+
+  <depend>mrp_camera_common</depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>libopencv-dev</depend>
+  <!-- rosdep key for libaravis-dev (LGPL-2.1+) -->
+  <depend>aravis-dev</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ament_cmake_test</test_depend>
+  <test_depend>rclpy</test_depend>
+  <test_depend>rmw_fastrtps_cpp</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

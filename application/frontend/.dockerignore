@@ -1,0 +1,7 @@
+.git/
+**/.git
+.yarn/
+.pnp.*
+node_modules/
+dist/
+.env

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if [[ ${1:-} == --help || ${1:-} == -h ]]; then
+  echo 'Usage: ./ci.local [component options]'
+  echo 'Run all component local CI scripts in dependency order. Options are passed to each.'
+  echo 'See LOCAL_CI.md and any component ./ci.local --help for details.'
+  exit 0
+fi
+for repo in core/ros-interfaces core/cell_config core/control_arbiter core/camera_manager core/recorder core/ai_lerobot driver/mrp_camera_common driver/camera_opencv driver/camera_realsense driver/camera_genicam driver/camera_ids driver/robot_so101 application/backend application/frontend; do
+  echo "==> $repo"
+  if [[ ! -x "$root/$repo/ci.local" ]]; then echo "Missing $repo/ci.local" >&2; exit 1; fi
+  # The interface project has no ordinary application image to push.
+  if [[ $repo == core/ros-interfaces ]]; then "$root/$repo/ci.local"; else "$root/$repo/ci.local" "$@"; fi
+done

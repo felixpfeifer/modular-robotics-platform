@@ -1,0 +1,143 @@
+include:
+  - local: .gitlab/ci/docker-hub.yml
+
+stages:
+  - image-check
+  - test
+  - export
+  - image-build
+  - image-publish
+  - hil
+
+variables:
+  # Base images this repo is FROM; a scheduled pipeline rebuilds when one changes (docker-hub.yml).
+  IMAGE_BASES: |
+    mrp-episode-recorder all docker.io/${DOCKERHUB_USERNAME}/mrp-ros-base:latest
+    mrp-episode-converter all docker.io/${DOCKERHUB_USERNAME}/mrp-ros-base:latest
+  DEBIAN_FRONTEND: noninteractive
+  ROS_DISTRO: jazzy
+  # The Dockerfiles expect the parent directory as context (COPY recorder/...).
+  IMAGE_REPO_PATH: recorder
+  IMAGE_CONTEXT: "."
+
+.ros-job:
+  image: docker.io/felixpfeifer/mrp-ros-base:latest
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends ffmpeg git python3-colcon-common-extensions python3-opencv python3-pip python3-pytest python3-rosdep python3-vcstool python3-yaml nlohmann-json3-dev ros-jazzy-control-msgs ros-jazzy-trajectory-msgs ros-jazzy-rosbag2-storage-mcap
+    - mkdir -p .ci_ws/src
+    - ln -s "$CI_PROJECT_DIR" .ci_ws/src/episode_recorder
+
+recorder:test:
+  extends: .ros-job
+  stage: test
+  script:
+    - source /opt/platform/install/setup.bash
+    - colcon --log-base .ci_ws/log build --base-paths .ci_ws/src --build-base .ci_ws/build --install-base .ci_ws/install --event-handlers console_direct+ --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
+    - source .ci_ws/install/setup.bash
+    - colcon --log-base .ci_ws/test-log test --base-paths .ci_ws/src --build-base .ci_ws/build --install-base .ci_ws/install --packages-select episode_recorder --event-handlers console_direct+
+    - colcon test-result --test-result-base .ci_ws/build --verbose
+  artifacts:
+    when: always
+    paths: [.ci_ws/build/, .ci_ws/install/, .ci_ws/log/, .ci_ws/test-log/, .test-artifacts/]
+    reports:
+      junit: .ci_ws/build/episode_recorder/test_results/**/*.xml
+    expire_in: 14 days
+
+export:lerobot-roundtrip:
+  extends: .ros-job
+  stage: export
+  variables:
+    UV_HTTP_TIMEOUT: "120"
+  needs:
+    - job: recorder:test
+      artifacts: true
+  script:
+    - python3 -m pip install --break-system-packages uv==0.8.13
+    - source /opt/platform/install/setup.bash
+    - source .ci_ws/install/setup.bash
+    - uv lock --check
+    - uv sync --frozen
+    - PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH="$CI_PROJECT_DIR:$PYTHONPATH" .venv/bin/python -m pytest -q test/test_lerobot_roundtrip.py --junitxml=.ci_ws/lerobot-roundtrip.junit.xml
+  artifacts:
+    when: always
+    paths: [.ci_ws/lerobot-roundtrip.junit.xml]
+    reports:
+      junit: .ci_ws/lerobot-roundtrip.junit.xml
+    expire_in: 14 days
+
+recorder:hil:
+  extends: .ros-job
+  stage: hil
+  tags: [so101-hil]
+  needs:
+    - job: recorder:test
+      artifacts: true
+    - job: export:lerobot-roundtrip
+      artifacts: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: manual
+    - when: manual
+  allow_failure: false
+  script:
+    - test "$HIL_ESTOP_CONFIRMED" = "1"
+    - source /opt/platform/install/setup.bash
+    - source .ci_ws/install/setup.bash
+    - MRP_HIL=1 timeout 180 make BUILD_ROOT=.ci_ws hil
+  artifacts:
+    when: always
+    paths: [hil-artifacts/]
+    expire_in: 30 days
+
+build:mrp-episode-recorder:amd64:
+  extends: [.image-build, .image-amd64]
+  variables: &recorder_image
+    IMAGE_NAME: mrp-episode-recorder
+    IMAGE_DOCKERFILE: recorder/Dockerfile
+
+build:mrp-episode-recorder:arm64:
+  extends: [.image-build, .image-arm64]
+  variables: *recorder_image
+
+publish:mrp-episode-recorder:
+  extends: .image-publish
+  variables: *recorder_image
+  needs:
+    - job: base:check
+      optional: true
+      artifacts: true
+    - job: recorder:test
+      artifacts: false
+    - job: export:lerobot-roundtrip
+      artifacts: false
+    - job: build:mrp-episode-recorder:amd64
+      artifacts: false
+    - job: build:mrp-episode-recorder:arm64
+      artifacts: false
+
+build:mrp-episode-converter:amd64:
+  extends: [.image-build, .image-amd64]
+  variables: &converter_image
+    IMAGE_NAME: mrp-episode-converter
+    IMAGE_DOCKERFILE: recorder/Dockerfile.convert
+
+build:mrp-episode-converter:arm64:
+  extends: [.image-build, .image-arm64]
+  variables: *converter_image
+
+publish:mrp-episode-converter:
+  extends: .image-publish
+  variables: *converter_image
+  needs:
+    - job: base:check
+      optional: true
+      artifacts: true
+    - job: recorder:test
+      artifacts: false
+    - job: export:lerobot-roundtrip
+      artifacts: false
+    - job: build:mrp-episode-converter:amd64
+      artifacts: false
+    - job: build:mrp-episode-converter:arm64
+      artifacts: false

@@ -1,0 +1,27 @@
+# Goal: start a long-running raw recording.
+unique_identifier_msgs/UUID request_id
+platform_episode_interfaces/EpisodeMetadata metadata
+---
+# Result: immutable raw artifact reference or partial-artifact disposition.
+unique_identifier_msgs/UUID request_id
+unique_identifier_msgs/UUID episode_id
+bool complete
+
+uint8 ARTIFACT_NONE=0
+uint8 ARTIFACT_COMPLETE=1
+uint8 ARTIFACT_PARTIAL_RETAINED=2
+uint8 ARTIFACT_PARTIAL_DISCARDED=3
+uint8 artifact_disposition
+
+string<=64 artifact_id
+string<=128 artifact_uri
+string<=128 content_hash
+uint16 reason_code
+string<=256 reason
+---
+# Feedback: observable progress only; no storage-provider behavior.
+unique_identifier_msgs/UUID episode_id
+uint8 state
+builtin_interfaces/Duration elapsed
+uint64 bytes_recorded
+string<=256 summary

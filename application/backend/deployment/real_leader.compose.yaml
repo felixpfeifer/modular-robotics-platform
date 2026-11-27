@@ -1,0 +1,17 @@
+# Overlay: real SO-101 leader on one USB serial port. Applied on top of
+# deployment/mock-cell/compose.yaml; relative paths use that base file.
+# The agent sets LEADER_PORT/LEADER_CALIBRATION after verifying the device.
+services:
+  leader:
+    environment:
+      BACKEND: real
+      USB_PORT: ${LEADER_PORT:-/dev/null}
+      CALIBRATION_FILE: /calibration/${LEADER_CALIBRATION:-leader.yaml}
+    devices:
+      - ${LEADER_PORT:-/dev/null}:${LEADER_PORT:-/dev/null}
+    volumes:
+      - calibration:/calibration:ro
+
+volumes:
+  calibration:
+    name: mrp-calibration

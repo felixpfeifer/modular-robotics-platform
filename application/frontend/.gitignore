@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.yarn/
+.pnp.*
+.env
+
+test-results/
+playwright-report/
+.image-context/
+gl-*-report.json
+gitleaks-*.json
+image-context-sources.txt

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MRP API · Swagger UI</title>
+    <style>
+      main {
+        margin: 0 auto;
+        max-width: 1100px;
+        padding: 36px 24px;
+      }
+      .api-operation {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+        margin: 12px 0;
+      }
+      .api-operation h2 {
+        font-family: ui-monospace, monospace;
+        font-size: 14px;
+      }
+      .api-operation p {
+        color: var(--muted);
+        margin: 9px 0 0;
+      }
+      .api-operation code {
+        display: block;
+        margin-top: 12px;
+        padding: 10px;
+        background: #f1f4ed;
+        border-radius: 5px;
+        white-space: pre-wrap;
+      }
+      .get {
+        color: #23744d;
+      }
+      .post {
+        color: #b24b2b;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="button secondary" href="/">← Recording studio</a>
+      <div class="page-title">
+        <div>
+          <div class="eyebrow">OPENAPI 3.0</div>
+          <h1>MRP API<span>.</span></h1>
+          <p>
+            Local Swagger-compatible API reference. Download
+            <a href="/openapi.json">/openapi.json</a>.
+          </p>
+        </div>
+      </div>
+      <section id="operations" aria-live="polite">
+        <p class="muted">Loading API contract…</p>
+      </section>
+    </main>
+    <script>
+      "use strict";
+      const e = (v) =>
+        String(v).replace(
+          /[&<>"']/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      fetch("/openapi.json", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((s) => {
+          document.querySelector("#operations").innerHTML = Object.entries(s.paths)
+            .flatMap(([p, m]) =>
+              Object.entries(m).map(
+                ([v, o]) =>
+                  `<article class="api-operation"><h2 class="${e(v)}">${e(v.toUpperCase())} ${e(p)}</h2><p>${e(o.summary || "")}</p><code>${e(JSON.stringify(o, null, 2))}</code></article>`,
+              ),
+            )
+            .join("");
+        })
+        .catch(() => {
+          document.querySelector("#operations").textContent =
+            "The local API contract could not be loaded.";
+        });
+    </script>
+  </body>
+</html>

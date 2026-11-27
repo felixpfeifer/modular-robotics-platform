@@ -1,0 +1,29 @@
+services:
+  camera_genicam:
+    build:
+      # The image also builds mrp_camera_common: clone it next to this repository
+      # (driver workspace layout), see README.md.
+      context: ..
+      dockerfile: camera_genicam/Dockerfile
+    # A real init as PID 1 forwards `docker stop` and reaps child processes.
+    init: true
+    image: mrp-camera-genicam
+    container_name: camera_genicam
+    restart: unless-stopped
+    # GigE Vision needs the real network cards: discovery is a UDP broadcast on the
+    # camera's subnet, and the camera streams UDP packets back to this host.
+    # Host networking also serves ROS discovery. No privileges or devices are needed for GigE.
+    network_mode: host
+    # USB3 Vision cameras instead: pass the USB bus (the device number changes on replug).
+    #   volumes: ["/dev/bus/usb:/dev/bus/usb"]
+    #   device_cgroup_rules: ["c 189:* rmw"]
+    #
+    # Defaults: first GenICam camera found, full view resized to 640x480 @ 30 FPS,
+    # JPEG on image/compressed. Pick a camera / settings, e.g.:
+    #   command: ["--ros-args", "-p", "transport:=gige", "-p", "serial_number:=21234567"]
+    #   command: ["--ros-args", "-p", "device_id:=192.168.10.11", "-p", "exposure_ms:=8.0", "-p", "gain_db:=0.0"]
+    # Settings stored in the camera, plus GenICam features (applied last):
+    #   command: ["--ros-args", "-p", "user_set:=UserSet1", "-p", "auto_exposure:=false",
+    #             "-p", "features:=[\"BinningHorizontal=2\",\"BinningVertical=2\"]"]
+    # No camera at hand: Aravis' simulated GigE camera.
+    #   command: ["--ros-args", "-p", "transport:=fake"]

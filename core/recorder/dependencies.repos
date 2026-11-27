@@ -1,0 +1,5 @@
+repositories:
+  ros-interfaces:
+    type: git
+    url: git@gitlab.com:global-dynamics/robot-foundation-models/modular-robotics-platform/foundation/ros-interfaces.git
+    version: fd94b38723769574cd61069b8246bdce0f7e5996

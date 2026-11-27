@@ -1,0 +1,81 @@
+include:
+  - local: .gitlab/ci/docker-hub.yml
+
+stages:
+  - image-check
+  - test
+  - image-build
+  - image-publish
+
+variables:
+  # Base images this repo is FROM; a scheduled pipeline rebuilds when one changes (docker-hub.yml).
+  IMAGE_BASES: |
+    mrp-camera-genicam all docker.io/${DOCKERHUB_USERNAME}/mrp-ros-base:latest
+  ROS_DISTRO: jazzy
+  DEBIAN_FRONTEND: noninteractive
+  # The image and the tests also build mrp_camera_common, the base all MRP camera
+  # drivers share. Its project must allow this project's CI_JOB_TOKEN
+  # (Settings > CI/CD > Job token permissions).
+  CAMERA_COMMON_PROJECT: global-dynamics/robot-foundation-models/modular-robotics-platform/drivers/mrp_camera_common
+  CAMERA_COMMON_REF: main
+  # Image context: <context>/camera_genicam (this repository) next to <context>/mrp_camera_common.
+  IMAGE_REPO_PATH: camera_genicam
+
+image:context:
+  variables:
+    IMAGE_EXTRA_SOURCES: >-
+      mrp_camera_common
+      $CAMERA_COMMON_PROJECT
+      $CAMERA_COMMON_REF
+
+# Unit tests, plus the real node against Aravis' simulated GigE camera (no hardware).
+# Format, build with warnings as errors, unit tests, clang-tidy and an ASan/UBSan
+# test run: mrp_camera_common/ci/driver-check.sh, shared by every camera driver.
+camera:test:
+  image: docker.io/felixpfeifer/mrp-ros-base:latest
+  stage: test
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends ca-certificates git
+    - git clone --depth 1 --branch "$CAMERA_COMMON_REF" "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CAMERA_COMMON_PROJECT}.git" .deps/mrp_camera_common
+  script:
+    - .deps/mrp_camera_common/ci/driver-check.sh camera_genicam libaravis-dev libusb-1.0-0-dev pkg-config
+  artifacts:
+    when: always
+    paths: [build/camera_genicam/test_results/, build-asan/camera_genicam/test_results/, log/, test-log/]
+    reports:
+      junit: build/camera_genicam/test_results/**/*.xml
+    expire_in: 14 days
+
+dockerfile:lint:
+  image: hadolint/hadolint:2.12.0-debian
+  stage: test
+  script:
+    - hadolint --failure-threshold error Dockerfile
+
+# Aravis is open source (LGPL), so unlike camera_ids this image is published publicly.
+build:mrp-camera-genicam:amd64:
+  extends: [.image-build, .image-amd64]
+  variables: &camera_image
+    IMAGE_NAME: mrp-camera-genicam
+    IMAGE_CONTEXT: "."
+    IMAGE_DOCKERFILE: camera_genicam/Dockerfile
+
+build:mrp-camera-genicam:arm64:
+  extends: [.image-build, .image-arm64]
+  variables: *camera_image
+
+publish:mrp-camera-genicam:
+  extends: .image-publish
+  variables: *camera_image
+  needs:
+    - job: base:check
+      optional: true
+      artifacts: true
+    - job: camera:test
+      artifacts: false
+    - job: dockerfile:lint
+      artifacts: false
+    - job: build:mrp-camera-genicam:amd64
+      artifacts: false
+    - job: build:mrp-camera-genicam:arm64
+      artifacts: false

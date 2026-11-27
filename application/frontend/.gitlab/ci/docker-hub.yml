@@ -1,0 +1,351 @@
+# Shared MRP Docker Hub publication (keep this file identical in every MRP repository).
+#
+# Flow per image: image:context -> build:<image>:amd64 + build:<image>:arm64 -> publish:<image>
+#   1. image:context stages ONLY git-tracked files (plus submodules and declared extra
+#      sources) into .image-context/, then fails on gitleaks hits.
+#      The .git directory, untracked files and local .env files can never reach a build.
+#   2. Each architecture is built natively (no QEMU) on runners tagged
+#      $AMD64_RUNNER_TAG / $ARM64_RUNNER_TAG.
+#   3. publish:<image> combines both architectures into one manifest list and pushes it to
+#      docker.io/$DOCKERHUB_USERNAME/<image>. Every pushed tag (version, latest, sha-*) is
+#      the same multi-arch manifest, so docker pulls the right architecture automatically.
+#
+# Required CI/CD variables (Settings > CI/CD > Variables, ideally on the group):
+#   DOCKERHUB_USERNAME  plain variable, not protected (MR/branch builds use it for base images)
+#   DOCKERHUB_TOKEN     Docker Hub access token (Read & Write): masked + hidden + protected
+# Publishing runs only on protected refs: the default branch and protected tags (protect v*).
+#
+# Per image job variables:
+#   IMAGE_NAME              Docker Hub repository name, e.g. mrp-camera-opencv (required)
+#   IMAGE_CONTEXT           build context inside .image-context (default: $IMAGE_REPO_PATH)
+#   IMAGE_DOCKERFILE        Dockerfile relative to the context (default: Dockerfile)
+#   IMAGE_BUILD_ARGS        space-separated KEY=VALUE build args (never put secrets here)
+#   IMAGE_BUILD_ARGS_amd64 / IMAGE_BUILD_ARGS_arm64  architecture-specific build args
+#   IMAGE_BUILD_SECRETS     space-separated CI variable names passed as BuildKit secrets
+#                           (RUN --mount=type=secret,id=NAME); they are never stored in layers
+# Automatic rebuilds when a base image changes (no trigger from the base repository):
+#   IMAGE_BASES             lines "<image name> <amd64|arm64|all> <base image ref>" listing the Docker Hub
+#                           images this repository's images are FROM. Each built image records the base
+#                           digests in the label org.mrp.base-digests.
+#   Create a pipeline schedule on the default branch with IMAGE_SCHEDULED_BUILD=true. base:check compares
+#   the recorded digests with the bases' current digests; when nothing changed, the image jobs of that
+#   scheduled pipeline exit immediately, otherwise every image is rebuilt and republished.
+#   IMAGE_FORCE_REBUILD=true on a schedule (or manual run) skips the comparison.
+#   Stagger schedules in dependency order (base -> recorder -> backend ...).
+# Per repository variables:
+#   IMAGE_REPO_PATH         where this repository sits inside the context (default: .)
+#   IMAGE_EXTRA_SOURCES     lines "<context path> <gitlab project path> <ref>" cloned with the
+#                           job token (the other project must allow this project's CI_JOB_TOKEN)
+
+include:
+  # GitLab's built-in secret detection (job: secret_detection).
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+
+# Not every MRP repository has a `test` stage, so run it in image-check.
+secret_detection:
+  stage: image-check
+
+variables:
+  AMD64_RUNNER_TAG: amd64
+  ARM64_RUNNER_TAG: arm64
+  MRP_BUILDAH_IMAGE: quay.io/buildah/stable:v1.40.1
+  MRP_GITLEAKS_IMAGE: zricethezav/gitleaks:v8.21.2
+  IMAGE_REPO_PATH: "."
+
+.mrp-image-rules: &mrp_image_rules
+  - if: '$CI_PIPELINE_SOURCE == "schedule" && $IMAGE_SCHEDULED_BUILD != "true"'
+    when: never
+  - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    when: never
+  - if: '$CI_COMMIT_REF_PROTECTED == "true" && ($CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG)'
+    variables:
+      IMAGE_STAGE_PUSH: "true"
+  - if: "$CI_COMMIT_BRANCH || $CI_COMMIT_TAG"
+
+.mrp-publish-rules: &mrp_publish_rules
+  - if: '$CI_PIPELINE_SOURCE == "schedule" && $IMAGE_SCHEDULED_BUILD != "true"'
+    when: never
+  - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    when: never
+  - if: '$CI_COMMIT_REF_PROTECTED == "true" && ($CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG)'
+
+# Extend this to run a job only where publication runs (protected default branch / tags).
+.mrp-publish-gate:
+  rules: *mrp_publish_rules
+
+# Shared shell helper: digest list of the base images an image is built FROM (see IMAGE_BASES).
+.mrp-base-lib:
+  script:
+    - |
+      mrp_base_digests() {
+        printf '%s\n' "${IMAGE_BASES:-}" | while read -r n a b; do
+          [ "$n" = "$1" ] || continue
+          [ "$a" = all ] || [ "$a" = "$2" ] || continue
+          printf 'sha256:%s\n' "$(skopeo inspect --raw "docker://$b" | sha256sum | cut -d' ' -f1)"
+        done | sort -u | paste -sd' ' -
+      }
+
+# Scheduled pipelines only: decide whether a base image changed since the images were published.
+base:check:
+  stage: image-check
+  image:
+    name: $MRP_BUILDAH_IMAGE
+    entrypoint: [""]
+  needs: []
+  interruptible: true
+  before_script: []
+  variables:
+    GIT_STRATEGY: none
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $IMAGE_SCHEDULED_BUILD == "true" && $IMAGE_BASES && $IMAGE_FORCE_REBUILD != "true"'
+    - when: never
+  script:
+    - set -euo pipefail
+    - command -v skopeo > /dev/null || dnf install --assumeyes --quiet skopeo
+    - !reference [.mrp-base-lib, script]
+    - |
+      changed=false
+      while read -r name _ _; do
+        [ -n "$name" ] || continue
+        for arch in amd64 arm64; do
+          expected="$(mrp_base_digests "$name" "$arch")"
+          [ -n "$expected" ] || continue
+          published="$(skopeo inspect --override-arch "$arch" --format '{{ index .Labels "org.mrp.base-digests" }}' \
+            "docker://docker.io/${DOCKERHUB_USERNAME}/${name}:latest" 2> /dev/null || true)"
+          if [ "$published" != "$expected" ]; then
+            echo "$name ($arch): base changed or image not published yet"
+            echo "  published: ${published:-none}"
+            echo "  current:   $expected"
+            changed=true
+          fi
+        done
+      done <<< "$(printf '%s\n' "$IMAGE_BASES" | sort -u -k1,1)"
+      echo "BASE_CHANGED=$changed" | tee base.env
+  artifacts:
+    reports:
+      dotenv: base.env
+
+# Stage tracked sources and scan them before any build starts.
+image:context:
+  stage: image-check
+  image:
+    name: $MRP_GITLEAKS_IMAGE
+    entrypoint: [""]
+  needs:
+    - job: base:check
+      optional: true
+      artifacts: true
+  interruptible: true
+  before_script: []
+  rules: *mrp_image_rules
+  script:
+    - |
+      set -eu
+      if [ "${BASE_CHANGED:-true}" = false ]; then echo "Base images unchanged; nothing to rebuild."; exit 0; fi
+      git config --global --add safe.directory '*'
+      cd "$CI_PROJECT_DIR"
+      root="$CI_PROJECT_DIR/.image-context"
+      rm -rf "$root"
+      export MRP_DEST="$root/$IMAGE_REPO_PATH"
+      mkdir -p "$MRP_DEST"
+      git checkout-index --all --prefix="$MRP_DEST/"
+      git submodule foreach --quiet --recursive 'git checkout-index --all --prefix="$MRP_DEST/$displaypath/"'
+      printf '%s\n' "${IMAGE_EXTRA_SOURCES:-}" | while read -r path project ref; do
+        [ -n "$path" ] || continue
+        tmp="$(mktemp -d)"
+        echo "Adding $project@$ref at $path"
+        git clone --quiet --depth 1 --branch "$ref" \
+          "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${project}.git" "$tmp"
+        mkdir -p "$root/$path"
+        git -C "$tmp" checkout-index --all --prefix="$root/$path/"
+        printf '%s %s %s\n' "$path" "$project" "$(git -C "$tmp" rev-parse HEAD)" >> image-context-sources.txt
+        rm -rf "$tmp"
+      done
+      gitleaks dir "$root" --no-banner --redact --exit-code 1 \
+        --report-format json --report-path gitleaks-image-context.json
+  artifacts:
+    when: always
+    expire_in: 1 day
+    paths:
+      - .image-context/
+      - gitleaks-image-context.json
+      - image-context-sources.txt
+
+.image-amd64:
+  tags: ["$AMD64_RUNNER_TAG"]
+  variables:
+    ARCH: amd64
+
+.image-arm64:
+  tags: ["$ARM64_RUNNER_TAG"]
+  variables:
+    ARCH: arm64
+
+.image-build:
+  stage: image-build
+  image:
+    name: $MRP_BUILDAH_IMAGE
+    entrypoint: [""]
+  needs:
+    - job: image:context
+      artifacts: true
+    - job: base:check
+      optional: true
+      artifacts: true
+  interruptible: true
+  before_script: []
+  rules: *mrp_image_rules
+  variables:
+    GIT_STRATEGY: none
+    STORAGE_DRIVER: vfs
+    BUILDAH_FORMAT: oci
+    BUILDAH_ISOLATION: chroot
+  script:
+    - |
+      set -euo pipefail
+      if [ "${BASE_CHANGED:-true}" = false ]; then echo "Base images unchanged; nothing to rebuild."; exit 0; fi
+      : "${IMAGE_NAME:?IMAGE_NAME is required}"
+      case "$ARCH:$(uname -m)" in
+        amd64:x86_64|arm64:aarch64) ;;
+        *) echo "Runner is $(uname -m) but this job builds $ARCH natively; check the runner tag variables." >&2
+           exit 1 ;;
+      esac
+      root="$CI_PROJECT_DIR/.image-context"
+      test -d "$root" || { echo "Missing .image-context artifact from image:context" >&2; exit 1; }
+      context="$root/${IMAGE_CONTEXT:-$IMAGE_REPO_PATH}"
+      dockerfile="$context/${IMAGE_DOCKERFILE:-Dockerfile}"
+      test -f "$dockerfile" || { echo "Dockerfile not found: ${dockerfile#"$root"/}" >&2; exit 1; }
+
+      args=()
+      arch_args_var="IMAGE_BUILD_ARGS_${ARCH}"
+      for arg in ${IMAGE_BUILD_ARGS:-} ${!arch_args_var:-}; do
+        if [[ "${arg%%=*}" =~ (TOKEN|PASSWORD|PASSWD|SECRET|CREDENTIAL|PRIVATE|API_KEY) ]]; then
+          echo "Build arg ${arg%%=*} looks secret; build args are stored in the image. Use IMAGE_BUILD_SECRETS." >&2
+          exit 1
+        fi
+        args+=(--build-arg "$arg")
+      done
+      for secret in ${IMAGE_BUILD_SECRETS:-}; do
+        test -n "${!secret:-}" || { echo "Build secret variable $secret is empty" >&2; exit 1; }
+        args+=(--secret "id=${secret},env=${secret}")
+      done
+
+      if [ -n "${IMAGE_BASES:-}" ]; then
+        command -v skopeo > /dev/null || dnf install --assumeyes --quiet skopeo
+        mrp_base_digests() {
+          printf '%s\n' "${IMAGE_BASES:-}" | while read -r n a b; do
+            [ "$n" = "$1" ] || continue
+            [ "$a" = all ] || [ "$a" = "$ARCH" ] || continue
+            printf 'sha256:%s\n' "$(skopeo inspect --raw "docker://$b" | sha256sum | cut -d' ' -f1)"
+          done | sort -u | paste -sd' ' -
+        }
+        args+=(--label "org.mrp.base-digests=$(mrp_base_digests "$IMAGE_NAME")")
+      fi
+
+      local_ref="localhost/${IMAGE_NAME}:ci-${ARCH}"
+      buildah bud --pull --arch "$ARCH" --os linux --file "$dockerfile" \
+        --label "org.opencontainers.image.source=${CI_PROJECT_URL}" \
+        --label "org.opencontainers.image.revision=${CI_COMMIT_SHA}" \
+        --label "org.opencontainers.image.title=${IMAGE_NAME}" \
+        "${args[@]}" --tag "$local_ref" "$context"
+      built_arch="$(buildah inspect --type image --format '{{.OCIv1.Architecture}}' "$local_ref")"
+      test "$built_arch" = "$ARCH" || { echo "Built $built_arch instead of $ARCH" >&2; exit 1; }
+
+      container="$(buildah from "$local_ref")"
+      buildah run "$container" -- /bin/sh -c '! command -v git'
+      buildah rm "$container"
+
+      if [ "${IMAGE_STAGE_PUSH:-false}" != true ]; then
+        echo "Not a protected default branch or tag: image built, not pushed."
+        exit 0
+      fi
+      : "${CI_REGISTRY_IMAGE:?Enable the GitLab container registry; it stages per-arch images}"
+      REGISTRY_AUTH_FILE="$(mktemp)"
+      printf '%s' '{"auths":{}}' > "$REGISTRY_AUTH_FILE"
+      export REGISTRY_AUTH_FILE
+      trap 'rm -f "$REGISTRY_AUTH_FILE"' EXIT
+      printf '%s' "$CI_REGISTRY_PASSWORD" | \
+        buildah login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+      buildah push "$local_ref" "docker://${CI_REGISTRY_IMAGE}/${IMAGE_NAME}:ci-${CI_PIPELINE_ID}-${ARCH}"
+
+.image-publish:
+  stage: image-publish
+  image:
+    name: $MRP_BUILDAH_IMAGE
+    entrypoint: [""]
+  tags: ["$AMD64_RUNNER_TAG"]
+  before_script: []
+  rules: *mrp_publish_rules
+  resource_group: dockerhub-${IMAGE_NAME}
+  interruptible: false
+  variables:
+    GIT_STRATEGY: none
+    STORAGE_DRIVER: vfs
+    BUILDAH_FORMAT: oci
+  script:
+    - |
+      set -euo pipefail
+      if [ "${BASE_CHANGED:-true}" = false ]; then echo "Base images unchanged; nothing to publish."; exit 0; fi
+      : "${IMAGE_NAME:?IMAGE_NAME is required}"
+      if [ -z "${DOCKERHUB_USERNAME:-}" ] || [ -z "${DOCKERHUB_TOKEN:-}" ]; then
+        echo "Set DOCKERHUB_USERNAME and a masked, protected DOCKERHUB_TOKEN CI/CD variable." >&2
+        exit 1
+      fi
+      staged="${CI_REGISTRY_IMAGE}/${IMAGE_NAME}:ci-${CI_PIPELINE_ID}"
+      target="docker.io/${DOCKERHUB_USERNAME}/${IMAGE_NAME}"
+
+      tags=()
+      release="${CI_COMMIT_TAG:-${RELEASE_TAG:-}}"
+      if [ -n "$release" ]; then
+        [[ "$release" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || { echo "Invalid tag: $release" >&2; exit 1; }
+        tags+=("$release")
+        version="${release#v}"
+        if [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.[0-9]+$ ]]; then
+          tags+=("$version" "${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" "${BASH_REMATCH[1]}" latest)
+        fi
+      fi
+      if [ "${CI_COMMIT_BRANCH:-}" = "$CI_DEFAULT_BRANCH" ]; then
+        tags+=("sha-${CI_COMMIT_SHORT_SHA}" latest)
+      fi
+      declare -A seen=()
+      unique=()
+      for tag in "${tags[@]}"; do
+        [ -n "${seen[$tag]:-}" ] || { seen[$tag]=1; unique+=("$tag"); }
+      done
+      test "${#unique[@]}" -gt 0 || { echo "No Docker Hub tags for this ref" >&2; exit 1; }
+
+      REGISTRY_AUTH_FILE="$(mktemp)"
+      printf '%s' '{"auths":{}}' > "$REGISTRY_AUTH_FILE"
+      export REGISTRY_AUTH_FILE
+      trap 'rm -f "$REGISTRY_AUTH_FILE"' EXIT
+      printf '%s' "$CI_REGISTRY_PASSWORD" | \
+        buildah login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+      printf '%s' "$DOCKERHUB_TOKEN" | \
+        buildah login --username "$DOCKERHUB_USERNAME" --password-stdin docker.io
+
+      buildah manifest create mrp-publish
+      buildah manifest add mrp-publish "docker://${staged}-amd64"
+      buildah manifest add mrp-publish "docker://${staged}-arm64"
+      manifest="$(buildah manifest inspect mrp-publish)"
+      for arch in amd64 arm64; do
+        grep -Eq "\"architecture\": *\"$arch\"" <<<"$manifest" || { echo "Manifest lacks $arch" >&2; exit 1; }
+      done
+
+      mkdir -p dockerhub
+      for tag in "${unique[@]}"; do
+        echo "Pushing ${target}:${tag} (linux/amd64 + linux/arm64)"
+        buildah manifest push --all --digestfile dockerhub/digest mrp-publish "docker://${target}:${tag}"
+      done
+      digest="$(cat dockerhub/digest)"
+      # buildah manifest inspect would look "docker://..." up in local storage and fail
+      # ("unsupported transport "docker" for looking up local images"); skopeo reads the registry.
+      command -v skopeo > /dev/null || dnf install --assumeyes --quiet skopeo
+      remote="$(skopeo inspect --raw "docker://${target}@${digest}")"
+      for arch in amd64 arm64; do
+        grep -Eq "\"architecture\": *\"$arch\"" <<<"$remote" || { echo "Pushed manifest lacks $arch" >&2; exit 1; }
+      done
+      printf '%s@%s\n' "$target" "$digest" | tee "dockerhub/${IMAGE_NAME}.digest"
+      printf '%s\n' "${unique[@]}" > "dockerhub/${IMAGE_NAME}.tags"
+  artifacts:
+    paths:
+      - dockerhub/

@@ -1,0 +1,12 @@
+unique_identifier_msgs/UUID request_id
+string<=64 source_id
+string<=64 target_id
+# Must be positive. The server may grant a shorter duration.
+builtin_interfaces/Duration requested_duration
+---
+unique_identifier_msgs/UUID request_id
+bool granted
+platform_control_interfaces/CommandLease lease
+uint16 reason_code
+# Empty when granted is true.
+string<=256 reason

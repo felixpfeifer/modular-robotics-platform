@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mrp_camera_common</name>
+  <version>0.1.0</version>
+  <description>Header-only base shared by the MRP camera drivers: capture thread, stall watchdog, diagnostics, heartbeat, JPEG and image fitting</description>
+  <maintainer email="maintainers@example.invalid">MRP camera driver maintainers</maintainer>
+  <license>GPL-3.0-only</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>diagnostic_msgs</depend>
+  <depend>libopencv-dev</depend>
+  <depend>rcl_interfaces</depend>
+  <depend>rclcpp</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>rmw_fastrtps_cpp</test_depend>
+  <test_depend>sensor_msgs</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

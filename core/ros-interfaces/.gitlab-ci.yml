@@ -1,0 +1,210 @@
+stages:
+  - image-check
+  - tooling
+  - validate
+  - component-acceptance
+  - compatibility
+  - security-and-license
+  - candidate-publication
+  - base-image-check
+  - base-image-publication
+
+variables:
+  GIT_DEPTH: "0"
+  ROS_DISTRO: "jazzy"
+  RMW_IMPLEMENTATION: "rmw_cyclonedds_cpp"
+  ROS_DOMAIN_ID: "87"
+  RESULTS_DIR: "${CI_PROJECT_DIR}/artifacts"
+  WORK_DIR: "/tmp/platform-ros-interfaces-${CI_PIPELINE_ID}"
+  AMD64_RUNNER_TAG: amd64
+  ARM64_RUNNER_TAG: arm64
+  TOOLING_RUNNER_TAG: arm64
+  ROS_BASE_UPSTREAM_IMAGE: docker.io/library/ros:jazzy-ros-base
+  # NVIDIA bases for the CUDA (amd64) and Jetson Orin (arm64, JetPack 7.2) variants.
+  CUDA_BASE_UPSTREAM_IMAGE: docker.io/nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
+  JETSON_BASE_UPSTREAM_IMAGE: docker.io/nvidia/cuda:13.0.0-cudnn-runtime-ubuntu24.04
+  ROS_BASE_FORCE_REBUILD: "false"
+
+default:
+  interruptible: true
+
+tooling:build:
+  stage: tooling
+  image:
+    name: quay.io/buildah/stable:v1.40.1
+    entrypoint: [""]
+  tags: ["$TOOLING_RUNNER_TAG"]
+  variables:
+    STORAGE_DRIVER: vfs
+    BUILDAH_FORMAT: oci
+    BUILDAH_ISOLATION: chroot
+  before_script:
+    - test -n "$CI_REGISTRY_IMAGE"
+    - printf '%s' "$CI_REGISTRY_PASSWORD" | buildah login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - command -v skopeo > /dev/null || dnf install --assumeyes --quiet skopeo
+  script:
+    # The tag is a hash of everything the Dockerfile copies in, so the image is rebuilt
+    # only when the tooling changes and reused by every other pipeline.
+    - |
+      src_hash="$(find containers scripts tools -type f -not -name '*.pyc' -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-32)"
+      export TOOLING_IMAGE="${CI_REGISTRY_IMAGE}/interface-tooling:src-${src_hash}"
+      mkdir -p artifacts
+      digest="$(skopeo inspect --creds "${CI_REGISTRY_USER}:${CI_REGISTRY_PASSWORD}" --format '{{.Digest}}' "docker://${TOOLING_IMAGE}" 2> /dev/null || true)"
+      if [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+        printf 'Reusing %s@%s\n' "$TOOLING_IMAGE" "$digest"
+      else
+        buildah bud --pull --file containers/Dockerfile.jazzy-cyclone --tag "$TOOLING_IMAGE" .
+        buildah push --digestfile artifacts/tooling-image.digest "$TOOLING_IMAGE" "docker://$TOOLING_IMAGE"
+        digest="$(cat artifacts/tooling-image.digest)"
+      fi
+      if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+        printf '%s\n' 'Registry returned an invalid tooling image digest' >&2
+        exit 1
+      fi
+      printf '%s\n' "$digest" > artifacts/tooling-image.digest
+      printf 'CI_INTERFACE_BUILT_TOOLING_IMAGE=%s@%s\n' "$TOOLING_IMAGE" "$digest" > artifacts/tooling-image.env
+  artifacts:
+    paths: [artifacts/tooling-image.digest]
+    reports:
+      dotenv: artifacts/tooling-image.env
+    expire_in: 30 days
+
+.tooling-job:
+  image:
+    name: "${CI_INTERFACE_BUILT_TOOLING_IMAGE}"
+  tags: ["$TOOLING_RUNNER_TAG"]
+  needs:
+    - job: tooling:build
+      artifacts: true
+  before_script:
+    - |
+      if test -z "${CI_INTERFACE_BUILT_TOOLING_IMAGE:-}"; then
+        printf '%s\n' 'Built tooling image is missing. Check tooling:build and its dotenv artifact dependency.' >&2
+        exit 1
+      fi
+    - export CI_INTERFACE_TOOLING_IMAGE="${CI_INTERFACE_BUILT_TOOLING_IMAGE}"
+    - export SOURCE_DIR="${CI_PROJECT_DIR}"
+    - export CONTAINER_IMAGE="${CI_INTERFACE_TOOLING_IMAGE}"
+
+.evidence:
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - artifacts/
+
+.test-evidence:
+  extends: .evidence
+  artifacts:
+    reports:
+      junit:
+        - artifacts/junit/**/*.xml
+
+validate-contracts:
+  stage: validate
+  extends: [.tooling-job, .evidence]
+  script:
+    - VERIFY_MODE=validate bash scripts/container-verify.sh
+    - bash scripts/check-commits.sh
+
+static-analysis:
+  stage: validate
+  extends: .tooling-job
+  script:
+    - python3 -m compileall -q tools tests
+    - bash -n scripts/*.sh
+    - python3 tools/check_contract_catalog.py
+
+# One pass builds the workspace, runs the tests and acceptance checks, and writes the release
+# evidence (SBOM, license inventory, type hashes), then packages the install tree.
+component-acceptance:
+  stage: component-acceptance
+  extends: [.tooling-job, .test-evidence]
+  script:
+    - VERIFY_MODE=verify bash scripts/container-verify.sh
+    - tar -C "${WORK_DIR}/ros_ws/install" -czf "artifacts/platform-ros-interfaces-${CI_COMMIT_SHA}.tar.gz" .
+    - git archive --format=tar.gz --output="artifacts/platform-ros-interfaces-source-${CI_COMMIT_SHA}.tar.gz" "${CI_COMMIT_SHA}"
+    - sha256sum artifacts/*.tar.gz > artifacts/release-checksums.sha256
+
+compatibility-policy:
+  stage: compatibility
+  extends: .tooling-job
+  needs:
+    - job: tooling:build
+      artifacts: true
+    - job: component-acceptance
+      artifacts: true
+  script:
+    - test "$(python3 -c 'import json; print(json.load(open("artifacts/compatibility-report.json"))["status"])')" = passed
+    - test "$(python3 -c 'import json; print(json.load(open("artifacts/type-hashes.json"))["qualified"])')" = True
+    - |
+      CZ_CONFIG="$(mktemp --suffix=.toml)"
+      trap 'rm -f "$CZ_CONFIG"' EXIT
+      python3 -c 'import pathlib, sys, tomlkit; config = tomlkit.parse(pathlib.Path(".cz.toml").read_text()); config["tool"]["commitizen"]["update_changelog_on_bump"] = False; pathlib.Path(sys.argv[1]).write_text(tomlkit.dumps(config))' "$CZ_CONFIG"
+      set +e
+      PROPOSED_VERSION="$(cz --config "$CZ_CONFIG" bump --get-next --yes)"
+      CZ_STATUS=$?
+      set -e
+    - if [ "${CZ_STATUS}" -eq 21 ]; then PROPOSED_VERSION="$(cat VERSION)"; elif [ "${CZ_STATUS}" -ne 0 ]; then exit "${CZ_STATUS}"; fi
+    - python3 tools/check_release_policy.py --report artifacts/compatibility-report.json --proposed-version "${PROPOSED_VERSION}"
+
+candidate-publication:
+  stage: candidate-publication
+  extends: .tooling-job
+  needs:
+    - job: tooling:build
+      artifacts: true
+    - job: component-acceptance
+      artifacts: true
+    - job: compatibility-policy
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$/ && $CI_COMMIT_REF_PROTECTED == "true"'
+      when: manual
+    - when: never
+  script:
+    - test "${RELEASE_APPROVED:-false}" = true
+    - test "${CI_INTERFACE_TOOLING_IMAGE}" != "${CI_INTERFACE_TOOLING_IMAGE%@sha256:*}"
+    - printf 'Candidate artifacts are qualified for publication by the protected release integration.\n'
+
+sast:
+  stage: security-and-license
+  needs: []
+
+# Not used here: this repository publishes no application image.
+image:context:
+  rules:
+    - when: never
+
+ros-base:check:
+  stage: base-image-check
+  image:
+    name: quay.io/buildah/stable:v1.40.1
+    entrypoint: [""]
+  tags: ["$AMD64_RUNNER_TAG"]
+  rules: &ros-base-rules
+    - if: '$CI_COMMIT_REF_PROTECTED == "true" && ($CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9_.-]+)?$/)'
+    - when: never
+  before_script:
+    - test -n "$DOCKERHUB_USERNAME"
+    - test -n "$DOCKERHUB_TOKEN"
+    - export DOCKERHUB_IMAGE="${DOCKERHUB_IMAGE:-${DOCKERHUB_USERNAME}/mrp-ros-base}"
+    - dnf install --assumeyes skopeo jq
+    - printf '%s' "$DOCKERHUB_TOKEN" | skopeo login --username "$DOCKERHUB_USERNAME" --password-stdin docker.io
+  script:
+    - bash scripts/plan-ros-base.sh
+  artifacts:
+    paths: [artifacts/ros-base-child.yml]
+    expire_in: 7 days
+
+ros-base:publish:
+  stage: base-image-publication
+  rules: *ros-base-rules
+  trigger:
+    include:
+      - artifact: artifacts/ros-base-child.yml
+        job: ros-base:check
+    strategy: depend
+
+include:
+  - template: Security/SAST.gitlab-ci.yml
+  - local: .gitlab/ci/docker-hub.yml

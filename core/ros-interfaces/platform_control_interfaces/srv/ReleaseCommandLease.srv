@@ -1,0 +1,9 @@
+unique_identifier_msgs/UUID request_id
+unique_identifier_msgs/UUID lease_id
+string<=64 source_id
+string<=64 target_id
+---
+unique_identifier_msgs/UUID request_id
+bool released
+uint16 reason_code
+string<=256 reason

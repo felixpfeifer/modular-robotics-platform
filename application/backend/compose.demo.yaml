@@ -1,0 +1,11 @@
+name: mrp-app-demo
+services:
+  app:
+    image: mrp-app-demo:dev
+    build:
+      context: .
+      dockerfile: Dockerfile.demo
+    ports: ["127.0.0.1:8088:8088"]
+    volumes: ["demo_data:/data/application"]
+volumes:
+  demo_data:

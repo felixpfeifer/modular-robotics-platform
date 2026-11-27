@@ -1,0 +1,107 @@
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH'
+
+include:
+  - local: .gitlab/ci/docker-hub.yml
+
+stages:
+  - image-check
+  - image-build
+  - release
+  - image-publish
+
+variables:
+  # Base images this repo is FROM; a scheduled pipeline rebuilds when one changes (docker-hub.yml).
+  IMAGE_BASES: |
+    mrp-robot-so101 all docker.io/${DOCKERHUB_USERNAME}/mrp-ros-base:latest
+    mrp-robot-so101-gazebo all docker.io/${DOCKERHUB_USERNAME}/mrp-ros-base:latest
+  GIT_DEPTH: "0"
+
+# Creates a GitLab release and exports its vX.Y.Z tag for the next job.
+# Publishing stays in this pipeline because a tag pushed from a CI job does
+# not reliably start a separate GitLab tag pipeline.
+semantic_release:
+  stage: release
+  image: node:22-alpine
+  variables:
+    GL_TOKEN: "$SEMANTIC_RELEASE_TOKEN"
+  before_script:
+    - apk add --no-cache git
+    - >-
+      npm install --global semantic-release@24.2.3
+      @semantic-release/commit-analyzer@13.0.0
+      @semantic-release/release-notes-generator@14.1.0
+      @semantic-release/gitlab@13.2.3
+    - git remote set-url origin "https://oauth2:${SEMANTIC_RELEASE_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+  script:
+    - |
+      semantic-release
+      RELEASE_TAG="$(git tag --points-at HEAD --list 'v*' --sort=-version:refname | head -n 1)"
+      if [ -n "$RELEASE_TAG" ]; then
+        echo "RELEASE_CREATED=true" > release.env
+        echo "RELEASE_TAG=$RELEASE_TAG" >> release.env
+      else
+        echo "RELEASE_CREATED=false" > release.env
+      fi
+  artifacts:
+    reports:
+      dotenv: release.env
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_TAG == null'
+
+# Every protected main pipeline publishes both images as one amd64+arm64 manifest:
+# sha-<commit> and latest, plus vX.Y.Z / X.Y.Z / X.Y / X when semantic-release cut a release.
+image:context:
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+
+.so101-publish:
+  extends: .image-publish
+
+build:mrp-robot-so101:amd64:
+  extends: [.image-build, .image-amd64]
+  variables: &so101_image
+    IMAGE_NAME: mrp-robot-so101
+
+build:mrp-robot-so101:arm64:
+  extends: [.image-build, .image-arm64]
+  variables: *so101_image
+
+publish:mrp-robot-so101:
+  extends: .so101-publish
+  variables: *so101_image
+  needs:
+    - job: base:check
+      optional: true
+      artifacts: true
+    - job: semantic_release
+      artifacts: true
+    - job: build:mrp-robot-so101:amd64
+      artifacts: false
+    - job: build:mrp-robot-so101:arm64
+      artifacts: false
+
+build:mrp-robot-so101-gazebo:amd64:
+  extends: [.image-build, .image-amd64]
+  variables: &so101_gazebo_image
+    IMAGE_NAME: mrp-robot-so101-gazebo
+    IMAGE_DOCKERFILE: Dockerfile.gazebo
+
+build:mrp-robot-so101-gazebo:arm64:
+  extends: [.image-build, .image-arm64]
+  variables: *so101_gazebo_image
+
+publish:mrp-robot-so101-gazebo:
+  extends: .so101-publish
+  variables: *so101_gazebo_image
+  needs:
+    - job: base:check
+      optional: true
+      artifacts: true
+    - job: semantic_release
+      artifacts: true
+    - job: build:mrp-robot-so101-gazebo:amd64
+      artifacts: false
+    - job: build:mrp-robot-so101-gazebo:arm64
+      artifacts: false

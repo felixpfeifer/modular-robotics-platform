@@ -1,0 +1,23 @@
+teleop_source:
+  ros__parameters:
+    leader_joint_states_topic: /leader/joint_states
+    intent_topic: /platform/control/sources/teleop/joint_intent
+    joint_names:
+      - shoulder_pan_joint
+      - shoulder_lift_joint
+      - elbow_flex_joint
+      - wrist_flex_joint
+      - wrist_roll_joint
+      - gripper_joint
+    # Optional mapping keyed by follower joint name. Unlisted joints copy the same-named leader joint.
+    # Uncomment and set the references from your matched poses before testing this direction.
+    # joint_mapping:
+    #   shoulder_pan_joint:
+    #     leader_joint: shoulder_pan_joint
+    #     scale: -1.0
+    #     leader_reference_rad: 0.0
+    #     follower_reference_rad: 0.0
+    target_id: so101
+    source_id: teleop
+    validity_ms: 80
+    max_leader_age_ms: 200

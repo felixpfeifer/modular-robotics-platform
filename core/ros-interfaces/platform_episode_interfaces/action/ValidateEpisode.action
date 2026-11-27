@@ -1,0 +1,20 @@
+# Goal: validate one immutable raw recording.
+unique_identifier_msgs/UUID request_id
+unique_identifier_msgs/UUID episode_id
+string<=64 artifact_id
+string<=128 content_hash
+---
+unique_identifier_msgs/UUID request_id
+unique_identifier_msgs/UUID episode_id
+bool valid
+platform_episode_interfaces/ValidationFinding[<=256] findings
+string<=128 report_reference
+uint16 reason_code
+string<=256 reason
+---
+unique_identifier_msgs/UUID episode_id
+# Normalized [0.0, 1.0].
+float32 progress
+uint32 completed_rules
+uint32 total_rules
+string<=64 current_rule_id

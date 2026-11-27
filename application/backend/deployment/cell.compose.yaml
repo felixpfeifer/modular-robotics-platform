@@ -1,0 +1,90 @@
+# Overlay for deployment/mock-cell/compose.yaml; relative paths use that base file.
+x-cell-client: &cell-client
+  ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/zenoh_router:${MOCK_ZENOH_PORT:-17447}"];scouting/multicast/enabled=false'
+
+services:
+  zenoh_router:
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/${MOCK_ZENOH_PORT:-17447}'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  leader:
+    environment: *cell-client
+  follower:
+    environment: *cell-client
+  # Joint names, topics, timeouts and the teleop joint mapping come from the robot profile and
+  # the project's settings; the agent renders them into control/ at every start.
+  control:
+    environment: *cell-client
+    volumes:
+      - cell_workspace:/workspace/config/cell:ro
+    command:
+      - ros2
+      - launch
+      - control_arbiter
+      - control.launch.py
+      - mode:=none
+      - arbiter_config:=/workspace/config/cell/control/arbiter.yaml
+      - teleop_config:=/workspace/config/cell/control/teleop.yaml
+  camera:
+    environment: *cell-client
+  camera2:
+    environment: *cell-client
+  # The recorder, bridge and exporter read the configuration the agent generates from the
+  # project's settings (cameras, recording rules, calibration) into this volume at every start.
+  bridge:
+    environment: *cell-client
+    volumes:
+      - cell_workspace:/workspace/config/mock-so101:ro
+  # The recorder is host-networked in the base file and cannot resolve the router's service
+  # name; put it on the cell network like every other participant.
+  recorder:
+    environment: *cell-client
+    network_mode: !reset null
+    networks: [mock_cell]
+    volumes:
+      - cell_workspace:/workspace/config/mock-so101:ro
+
+  convert:
+    image: mrp-episode-converter
+    build:
+      context: ../../../../core
+      dockerfile: recorder/Dockerfile.convert
+    profiles: [tools]
+    environment:
+      HF_HUB_OFFLINE: "1"
+      HF_DATASETS_OFFLINE: "1"
+      WANDB_MODE: disabled
+    volumes:
+      - ../../../../core/recorder/episode_recorder_py:/app/episode_recorder_py:ro
+      - ../../../../core/recorder/config:/app/config:ro
+      - cell_workspace:/workspace/config/mock-so101:ro
+      - ../../../../core/recorder/config:/workspace/core/recorder/config:ro
+      - recordings:/data/datasets:ro
+      - export_data:/data/exports
+
+  # Optional CLI upload from an existing application export. Supply HF_TOKEN
+  # only to the one-off container with "docker compose run -e HF_TOKEN upload".
+  upload:
+    image: mrp-episode-converter
+    profiles: [upload]
+    volumes:
+      - ../../../../core/recorder/episode_recorder_py:/app/episode_recorder_py:ro
+      - export_data:/data/exports:ro
+    entrypoint: ["/bin/bash", "-c", "source /opt/platform/install/setup.bash && exec python /app/episode_recorder_py/upload_lerobot.py \"$$@\"", "--"]
+
+volumes:
+  export_data:
+    name: mrp-app_exports
+  cell_workspace:
+    name: mrp-cell-workspace
+
+# The cell joins the application's network, so the application reaches the router by service
+# name with no published port. The router is still published for other nodes (laptop RViz, GPU
+# hosts) on MOCK_ZENOH_BIND, which defaults to 127.0.0.1.
+networks:
+  mock_cell:
+    name: mrp-cell
+    external: true
+    driver: !reset null

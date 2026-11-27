@@ -1,0 +1,5 @@
+# The static analyzer follows rs2 error handling into librealsense's own headers
+# (rs_processing.hpp: error::handle throws, which it reads as a leak). That code is
+# not ours; everything else from the shared configuration applies.
+InheritParentConfig: true
+Checks: '-clang-analyzer-cplusplus.NewDeleteLeaks'

@@ -1,0 +1,44 @@
+# Gazebo simulation image — builds the full stack including so_arm_gz,
+# the Gazebo simulator, ros_gz bridge, and RViz for visualisation.
+FROM docker.io/felixpfeifer/mrp-ros-base:latest
+
+SHELL ["/bin/bash", "-c"]
+
+WORKDIR /app
+COPY . /app
+
+RUN test -n "$(ls -A src/feetech_ros2_driver 2>/dev/null)" && \
+    test -f src/ros2_so_arm/so_arm_utils/package.xml || \
+    { echo 'Missing submodules. Run: git submodule update --init --recursive' >&2; exit 1; }
+
+# Install all dependencies including Gazebo, ros_gz, gz_ros2_control, and RViz.
+# We resolve from the full source tree so everything (description + sim + driver)
+# is covered.
+RUN apt-get update && \
+    rosdep update && \
+    rosdep install -y --ignore-src \
+      --from-paths \
+        src/feetech_ros2_driver \
+        src/ros2_so_arm/so_arm_utils \
+        src/ros2_so_arm/so_arm100_description \
+        src/ros2_so_arm/so_arm101_description \
+        src/ros2_so_arm/so_arm_gz \
+    && apt-get install -y --no-install-recommends \
+        ros-jazzy-ros-gz-bridge \
+        ros-jazzy-nav2-common \
+        ros-jazzy-rviz2 \
+        ros-jazzy-rmw-cyclonedds-cpp \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build everything up to so_arm_gz (pulls in descriptions + driver as deps).
+RUN /bin/bash -c 'source /opt/platform/install/setup.bash && \
+    colcon build --symlink-install \
+      --packages-up-to so_arm_gz \
+      --cmake-args -DCMAKE_BUILD_TYPE=Release'
+
+RUN for package in git git-man; do if dpkg -s "$package" >/dev/null 2>&1; then apt-get purge -y "$package" || exit 1; fi; done && ! command -v git
+# Source the workspace and launch the Gazebo simulation.
+# "$@" forwards any compose `command:` args to the launch file.
+ENTRYPOINT ["/bin/bash", "-c", \
+    "source /opt/platform/install/setup.bash && source /app/install/setup.bash && ros2 launch so_arm_gz so_arm_gz_bringup.launch.py \"$@\"", \
+    "--"]

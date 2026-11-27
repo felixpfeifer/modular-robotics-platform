@@ -1,0 +1,37 @@
+schema_version: robot-config/v1
+robot:
+  id: so101
+  robot_type: so101
+  target_id: so101
+  state:
+    topic: /joint_states
+    type: sensor_msgs/msg/JointState
+    maximum_skew_ms: 25.0
+    p99_skew_ms: 15.0
+  action:
+    topic: /platform/control/joint_intent
+    type: platform_control_interfaces/msg/JointIntent
+  joints:
+    - {name: shoulder_pan_joint, unit: rad, lower: -1.91986, upper: 1.91986}
+    - {name: shoulder_lift_joint, unit: rad, lower: -1.74533, upper: 1.74533}
+    - {name: elbow_flex_joint, unit: rad, lower: -1.69, upper: 1.54}
+    - {name: wrist_flex_joint, unit: rad, lower: -1.6, upper: 1.6}
+    - {name: wrist_roll_joint, unit: rad, lower: -2.3, upper: 2.3}
+    - {name: gripper_joint, unit: rad, lower: 0.0, upper: 1.70}
+  command_adapter:
+    groups:
+      - name: arm
+        transport: joint_trajectory_topic
+        endpoint: /joint_trajectory_controller/joint_trajectory
+        duration_ms: 40
+        joints:
+          - shoulder_pan_joint
+          - shoulder_lift_joint
+          - elbow_flex_joint
+          - wrist_flex_joint
+          - wrist_roll_joint
+      - name: gripper
+        transport: parallel_gripper_action
+        endpoint: /gripper_controller/gripper_cmd
+        max_effort: 10.0
+        joints: [gripper_joint]

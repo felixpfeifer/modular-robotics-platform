@@ -1,0 +1,11 @@
+schema_version: recording-profile/v2
+profiles:
+  mock_so101_webcam_v1:
+    robot_config: ../../core/recorder/config/robots/so101_sim.yaml
+    camera_configs: [webcam.yaml]
+    timeline_camera: webcam
+    minimum_duration_seconds: 5.0
+    maximum_source_receipt_offset_ms: 1000.0
+    optional_topics:
+      - /platform/control/safety_events
+      - /platform/control/command_rejections

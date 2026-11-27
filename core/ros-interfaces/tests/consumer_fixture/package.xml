@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>platform_interface_consumer_fixture</name>
+  <version>0.1.0</version>
+  <description>Minimal downstream C++ consumer fixture for all interface domains.</description>
+  <maintainer email="robotics-platform@global-dynamics.example">Modular Robotics Platform</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>platform_common_interfaces</depend>
+  <depend>platform_device_interfaces</depend>
+  <depend>platform_control_interfaces</depend>
+  <depend>platform_episode_interfaces</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

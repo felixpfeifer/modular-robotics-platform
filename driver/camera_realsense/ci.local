@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+repo='camera_realsense'
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+cd "$root"
+push=0
+namespace=${DOCKERHUB_USERNAME:-}
+tag=${CI_LOCAL_TAG:-local}
+base_namespace=${MRP_BASE_NAMESPACE:-felixpfeifer}
+usage() {
+  cat <<'HELP'
+Usage: ./ci.local [--push] [--namespace DOCKERHUB_USER] [--tag TAG]
+Run the component's local checks and build its CI images for the host architecture.
+--push publishes the resulting images to Docker Hub after all checks and builds pass.
+Set DOCKERHUB_USERNAME or use --namespace to select the destination (required for
+--push). Authenticate beforehand with docker login. CI_LOCAL_TAG defaults to local.
+MRP_BASE_NAMESPACE overrides the owner of configurable platform base images.
+Docker, network access, and sufficient disk space are required. GitLab-only release,
+security templates, scheduled jobs and hardware/integration jobs are not run.
+HELP
+}
+while (($#)); do
+  case "$1" in
+    --push) push=1; shift ;;
+    --namespace) (($# >= 2)) || { usage >&2; exit 2; }; namespace=$2; shift 2 ;;
+    --tag) (($# >= 2)) || { usage >&2; exit 2; }; tag=$2; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+if ((push)) && [[ -z $namespace ]]; then echo 'Set DOCKERHUB_USERNAME or pass --namespace before using --push.' >&2; exit 2; fi
+command -v docker >/dev/null || { echo 'Docker is required.' >&2; exit 1; }
+docker info >/dev/null
+namespace=${namespace:-local}
+# Each job gets its own container, like GitLab; generated test files stay in the checkout.
+run() {
+  local image=$1 script=$2
+  docker run --rm --entrypoint bash -e CI_PROJECT_DIR=/work -e DEBIAN_FRONTEND=noninteractive -e ROS_DISTRO=jazzy -v "$root:/work" -w /work "$image" -eo pipefail -c "$script"
+}
+rosbase=docker.io/felixpfeifer/mrp-ros-base:latest
+images=()
+build() {
+  local name=$1 file=$2 context=$3; shift 3
+  local ref="$namespace/$name:$tag"
+  docker build -f "$file" -t "$ref" "$@" "$context"
+  images+=("$ref")
+}
+case "$repo" in
+  backend)
+    run python:3.12-slim 'pip install --disable-pip-version-check -r requirements.txt; PYTHONPATH=backend python -m compileall -q backend deployment/agent.py; PYTHONPATH=backend python tests/run.py; pip install ruff==0.17.4; ruff check backend deployment tests; ruff format --check backend deployment tests'
+    docker compose -f compose.demo.yaml config --quiet
+    workspace=$(cd ../.. && pwd)
+    [[ -d "$workspace/core/cell_config/cell_config" ]] || { echo 'Agent image requires core/cell_config in the workspace.' >&2; exit 1; }
+    build mrp-app Dockerfile . --build-arg "BASE_IMAGE=docker.io/$base_namespace/mrp-episode-recorder:latest"
+    build mrp-app-agent Dockerfile.agent "$workspace"
+    build mrp-app-demo Dockerfile.demo . ;;
+  frontend)
+    run node:22-bookworm-slim 'corepack enable; yarn install --immutable; yarn format:check; yarn lint; yarn test; yarn build'
+    run mcr.microsoft.com/playwright:v1.55.0-noble 'corepack enable; yarn install --immutable; yarn test:e2e'
+    build mrp-frontend Dockerfile . ;;
+  ai_lerobot)
+    run python:3.12-slim 'pip install uv==0.8.13; UV_HTTP_TIMEOUT=300 uv sync --frozen; uv run --frozen python -m pytest -q tests --junitxml=reports/pytest.xml'
+    case $(uname -m) in
+      x86_64) base=mrp-ros-base-cuda; torch=https://download.pytorch.org/whl/cu128 ;;
+      aarch64|arm64) base=mrp-ros-base-jetson; torch=https://download.pytorch.org/whl/cu130 ;;
+      *) echo 'Unsupported architecture for LeRobot image.' >&2; exit 1 ;;
+    esac
+    build mrp-ai-lerobot Dockerfile . --build-arg "BASE_IMAGE=docker.io/$base_namespace/$base:latest" --build-arg "TORCH_INDEX_URL=$torch" ;;
+  cell_config)
+    run "$rosbase" 'apt-get update; apt-get install -y --no-install-recommends python3-colcon-common-extensions python3-pytest; source /opt/platform/install/setup.bash; colcon build --packages-select cell_config; source install/setup.bash; python3 -m pytest test --junitxml=reports/pytest.xml'
+    build mrp-cell-config Dockerfile . --build-arg "BASE_IMAGE=docker.io/$base_namespace/mrp-ros-base:latest" ;;
+  camera_opencv|camera_realsense|camera_ids|camera_genicam|mrp_camera_common)
+    # The checks live in mrp_camera_common/ci/driver-check.sh (also used by GitLab CI);
+    # the drivers need mrp_camera_common cloned next to their repository.
+    if [[ $repo == mrp_camera_common ]]; then common=$root; else common=$(cd .. && pwd)/mrp_camera_common; fi
+    [[ -x $common/ci/driver-check.sh ]] || { echo "Clone mrp_camera_common next to this repository ($common)." >&2; exit 1; }
+    case $repo in camera_realsense) deps='ros-jazzy-librealsense2' ;; camera_genicam) deps='libaravis-dev libusb-1.0-0-dev pkg-config' ;; *) deps='' ;; esac
+    docker run --rm --entrypoint bash -e DEBIAN_FRONTEND=noninteractive -v "$root:/work" -v "$common:/mrp_camera_common:ro" -w /work "$rosbase" -c "/mrp_camera_common/ci/driver-check.sh $repo $deps"
+    [[ $repo == mrp_camera_common ]] && { echo 'mrp_camera_common has no image.'; exit 0; }
+    docker run --rm -v "$root:/work" -w /work --entrypoint hadolint hadolint/hadolint:2.12.0-debian --failure-threshold error Dockerfile
+    # Image context: the parent directory, which holds this repository and mrp_camera_common.
+    # The IDS image needs the user-supplied SDK in sdk/ (see camera_ids/README.md); only CI publishes it (private repository).
+    if [[ $repo != camera_ids ]]; then build "mrp-${repo//_/-}" Dockerfile ..
+    elif compgen -G "sdk/*.deb" >/dev/null || compgen -G "sdk/*.tgz" >/dev/null; then
+      if ((push)); then echo "mrp-camera-ids contains the proprietary IDS SDK: only the GitLab pipeline publishes it, after checking the Docker Hub repository is private." >&2; exit 2; fi
+      build mrp-camera-ids Dockerfile ..
+    else echo "camera_ids: no IDS SDK in sdk/, skipping the image build."; fi ;;
+  control_arbiter)
+    run "$rosbase" 'apt-get update; apt-get install -y --no-install-recommends git python3-colcon-common-extensions python3-pytest python3-rosdep python3-vcstool ros-jazzy-ament-flake8; mkdir -p .ci_ws/src; ln -sfn /work .ci_ws/src/control_arbiter; source /opt/platform/install/setup.bash; rosdep update; rosdep install --from-paths .ci_ws/src --ignore-src --rosdistro jazzy --skip-keys "platform_common_interfaces platform_control_interfaces" -r -y; colcon --log-base .ci_ws/log build --base-paths .ci_ws/src --build-base .ci_ws/build --install-base .ci_ws/install --packages-up-to control_arbiter --event-handlers console_direct+; source .ci_ws/install/setup.bash; colcon --log-base .ci_ws/test-log test --base-paths .ci_ws/src --build-base .ci_ws/build --install-base .ci_ws/install --packages-select control_arbiter --event-handlers console_direct+; colcon test-result --test-result-base .ci_ws/build --verbose; ament_flake8 control_arbiter test launch'
+    build mrp-control-arbiter Dockerfile .. ;;
+  recorder)
+    run "$rosbase" 'apt-get update; apt-get install -y --no-install-recommends ffmpeg git python3-colcon-common-extensions python3-opencv python3-pip python3-pytest python3-rosdep python3-vcstool python3-yaml nlohmann-json3-dev ros-jazzy-control-msgs ros-jazzy-trajectory-msgs ros-jazzy-rosbag2-storage-mcap; mkdir -p .ci_ws/src; ln -sfn /work .ci_ws/src/episode_recorder; source /opt/platform/install/setup.bash; colcon --log-base .ci_ws/log build --base-paths .ci_ws/src --build-base .ci_ws/build --install-base .ci_ws/install --event-handlers console_direct+ --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo; source .ci_ws/install/setup.bash; colcon --log-base .ci_ws/test-log test --base-paths .ci_ws/src --build-base .ci_ws/build --install-base .ci_ws/install --packages-select episode_recorder --event-handlers console_direct+; colcon test-result --test-result-base .ci_ws/build --verbose; python3 -m pip install --break-system-packages uv==0.8.13; uv lock --check; uv sync --frozen; PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH="/work:${PYTHONPATH:-}" .venv/bin/python -m pytest -q test/test_lerobot_roundtrip.py --junitxml=.ci_ws/lerobot-roundtrip.junit.xml'
+    build mrp-episode-recorder Dockerfile ..
+    build mrp-episode-converter Dockerfile.convert .. ;;
+  camera_manager)
+    run ros:jazzy-ros-base 'apt-get update; apt-get install -y --no-install-recommends build-essential cmake cppcheck clang-format clang-tidy libopencv-dev yamllint; find include src test -type f \( -name "*.hpp" -o -name "*.cpp" \) -print0 | xargs -0 clang-format --dry-run --Werror; yamllint -c .yamllint.yml .gitlab-ci.yml config launch; cmake -S . -B build-ci -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DBUILD_TESTING=ON; cmake --build build-ci --target lint; clang-tidy -p build-ci src/*.cpp test/*.cpp --warnings-as-errors="*"; cmake --build build-ci --parallel; ctest --test-dir build-ci --output-on-failure --output-junit /work/build-ci/test-results.xml; cmake -S . -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"; cmake --build build-sanitizers --parallel; ctest --test-dir build-sanitizers --output-on-failure'
+    docker run --rm -v "$root:/work" -w /work --entrypoint hadolint hadolint/hadolint:2.12.0-debian --failure-threshold error Dockerfile
+    docker run --rm -v "$root:/work" -w /work aquasec/trivy:0.56.2 fs --scanners vuln,misconfig --severity HIGH,CRITICAL --exit-code 1 --format json --output trivy-source.json .
+    build mrp-camera-manager Dockerfile . --build-arg "BASE_IMAGE=docker.io/$base_namespace/mrp-ros-base:latest"
+    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$root:/work" -w /work aquasec/trivy:0.56.2 image --severity HIGH,CRITICAL --exit-code 1 "${images[0]}" ;;
+  robot_so101)
+    git submodule status --recursive | awk '/^[-+U]/{bad=1; print} END{exit bad}' || { echo 'Initialize matching submodules: git submodule update --init --recursive' >&2; exit 1; }
+    build mrp-robot-so101 Dockerfile .
+    build mrp-robot-so101-gazebo Dockerfile.gazebo . ;;
+  ros-interfaces)
+    if ((push)); then echo 'This repository publishes base images through a protected release pipeline; local publishing is not supported.' >&2; exit 2; fi
+    make verify
+    exit 0 ;;
+  *) echo "Unknown component: $repo" >&2; exit 1 ;;
+esac
+if ((push)); then
+  for image in "${images[@]}"; do docker push "$image"; done
+fi
+printf 'Local CI passed. Images: %s\n' "${images[*]}"

@@ -1,0 +1,24 @@
+---
+services:
+  camera_opencv:
+    build:
+      # The image also builds mrp_camera_common: clone it next to this repository
+      # (driver workspace layout), see README.md.
+      context: ..
+      dockerfile: camera_opencv/Dockerfile
+    # A real init as PID 1 forwards `docker stop` and reaps child processes.
+    init: true
+    image: mrp-camera-opencv
+    container_name: camera_opencv
+    restart: unless-stopped
+    network_mode: host
+    devices:
+      - /dev:/dev
+    # NOTE: do NOT bind-mount the source over /app — it would shadow the
+    # install/ and build/ artifacts produced during the image build, breaking
+    # the entrypoint. Rebuild the image (`docker compose up --build`) to pick
+    # up code changes instead.
+    # No command override: the image entrypoint runs `ros2 run camera_opencv camera_node`.
+    # The node auto-detects the RealSense color stream. To pin a device, pass e.g.:
+    #   command: ["--ros-args", "-p", "video_device:=/dev/video2"]
+    privileged: true

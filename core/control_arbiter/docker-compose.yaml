@@ -1,0 +1,23 @@
+x-ros-env: &ros-env
+  RMW: ${RMW:-zenoh}
+  ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+  ZENOH_CONFIG_OVERRIDE: '${ZENOH_CONFIG_OVERRIDE:-connect/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false}'
+
+services:
+  control_arbiter:
+    build:
+      context: ..
+      dockerfile: control_arbiter/Dockerfile
+    image: mrp-control-arbiter
+    container_name: control_arbiter
+    network_mode: host
+    ipc: host
+    restart: "no"
+    environment:
+      <<: *ros-env
+    command: ["ros2", "launch", "control_arbiter", "control.launch.py", "mode:=none"]
+    healthcheck:
+      test: ["CMD", "/bin/bash", "/ws/control_arbiter/docker/healthcheck.sh"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

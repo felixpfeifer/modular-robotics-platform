@@ -1,0 +1,85 @@
+include:
+  - local: .gitlab/ci/docker-hub.yml
+
+stages:
+  - image-check
+  - test
+  - image-build
+  - image-publish
+
+variables:
+  # Base images this repo is FROM; a scheduled pipeline rebuilds when one changes (docker-hub.yml).
+  IMAGE_BASES: |
+    mrp-camera-ids all docker.io/${DOCKERHUB_USERNAME}/mrp-ros-base:latest
+  ROS_DISTRO: jazzy
+  DEBIAN_FRONTEND: noninteractive
+  # The image and the tests also build mrp_camera_common, the base all MRP camera
+  # drivers share. Its project must allow this project's CI_JOB_TOKEN
+  # (Settings > CI/CD > Job token permissions).
+  CAMERA_COMMON_PROJECT: global-dynamics/robot-foundation-models/modular-robotics-platform/drivers/mrp_camera_common
+  CAMERA_COMMON_REF: main
+
+# Format, build with warnings as errors, unit tests, clang-tidy and an ASan/UBSan
+# test run: mrp_camera_common/ci/driver-check.sh, shared by every camera driver.
+# Without the SDK only the helpers and their tests are built.
+camera:test:
+  image: docker.io/felixpfeifer/mrp-ros-base:latest
+  stage: test
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends ca-certificates git
+    - git clone --depth 1 --branch "$CAMERA_COMMON_REF" "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CAMERA_COMMON_PROJECT}.git" .deps/mrp_camera_common
+  script:
+    - .deps/mrp_camera_common/ci/driver-check.sh camera_ids
+  artifacts:
+    when: always
+    paths: [build/camera_ids/test_results/, build-asan/camera_ids/test_results/, log/, test-log/]
+    reports:
+      junit: build/camera_ids/test_results/**/*.xml
+    expire_in: 14 days
+
+dockerfile:lint:
+  image: hadolint/hadolint:2.12.0-debian
+  stage: test
+  script:
+    - hadolint --failure-threshold error Dockerfile
+
+# Build directly from the LFS checkout on native runners. Images remain on the runner.
+image:context:
+  rules:
+    - when: never
+
+.ids-image-build:
+  stage: image-build
+  image:
+    name: $MRP_BUILDAH_IMAGE
+    entrypoint: [""]
+  needs: [camera:test, dockerfile:lint]
+  variables:
+    STORAGE_DRIVER: vfs
+    BUILDAH_FORMAT: oci
+    BUILDAH_ISOLATION: chroot
+    GIT_LFS_SKIP_SMUDGE: "0"
+  script:
+    - |
+      set -euo pipefail
+      [ "${CI_PROJECT_VISIBILITY:-}" = private ] || { echo "The SDK requires a private project." >&2; exit 1; }
+      case "$ARCH:$(uname -m)" in
+        amd64:x86_64) sdk=sdk/ids-software-suite-linux-64-4.96.1-debian.tgz ;;
+        arm64:aarch64) sdk=sdk/ids-software-suite-linux-arm64-4.96.1-debian.tgz ;;
+        *) echo "Runner architecture does not match $ARCH" >&2; exit 1 ;;
+      esac
+      test -f "$sdk" && gzip -t "$sdk" || { echo "Missing SDK archive or Git LFS object: $sdk" >&2; exit 1; }
+      # Context: <context>/camera_ids (this LFS checkout) next to <context>/mrp_camera_common.
+      command -v git > /dev/null || dnf install --assumeyes --quiet git
+      context="$(mktemp -d)"
+      cp -a . "$context/camera_ids"
+      rm -rf "$context/camera_ids/.git" "$context/camera_ids/.deps"
+      git clone --quiet --depth 1 --branch "$CAMERA_COMMON_REF" \
+        "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CAMERA_COMMON_PROJECT}.git" "$context/mrp_camera_common"
+      buildah bud --pull --arch "$ARCH" --file "$context/camera_ids/Dockerfile" --tag "localhost/mrp-camera-ids:ci-$ARCH" "$context"
+
+build:mrp-camera-ids:amd64:
+  extends: [.ids-image-build, .image-amd64]
+
+build:mrp-camera-ids:arm64:
+  extends: [.ids-image-build, .image-arm64]

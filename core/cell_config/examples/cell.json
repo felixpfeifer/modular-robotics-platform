@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "SO-101 cell",
+  "robots": [
+    {"id": "leader", "name": "Leader arm", "role": "leader", "driver": "robot_so101", "namespace": "/leader", "connection": {"type": "serial", "path": "/dev/serial/by-id/leader"}},
+    {"id": "follower", "name": "Follower arm", "role": "follower", "driver": "robot_so101", "namespace": "/", "connection": {"type": "serial", "path": "/dev/serial/by-id/follower"}}
+  ],
+  "cameras": [
+    {"id": "wrist_camera", "name": "Wrist camera", "driver": "camera_opencv", "topic": "/wrist_camera/image/compressed", "connection": {"type": "usb", "path": "/dev/v4l/by-id/camera-video-index0"}, "attached_to": "follower"}
+  ],
+  "control_links": [{"leader": "leader", "follower": "follower"}]
+}

@@ -1,0 +1,31 @@
+# Shared by mrp_camera_common and the MRP camera drivers (keep the copies identical).
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  cert-err34-c,
+  clang-analyzer-*,
+  concurrency-thread-canceltype-asynchronous,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-special-member-functions,
+  cppcoreguidelines-virtual-class-destructor,
+  misc-definitions-in-headers,
+  misc-redundant-expression,
+  misc-unused-using-decls,
+  modernize-use-nullptr,
+  modernize-use-override,
+  performance-*,
+  -performance-avoid-endl,
+  -performance-enum-size,
+  readability-braces-around-statements,
+  readability-implicit-bool-conversion,
+  readability-misleading-indentation
+WarningsAsErrors: '*'
+HeaderFilterRegex: '.*/(camera_[a-z]+|mrp_camera_common)/(include|src|test)/.*'
+CheckOptions:
+  - key: readability-implicit-bool-conversion.AllowPointerConditions
+    value: true
+  - key: cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
+    value: true
+  - key: bugprone-exception-escape.FunctionsThatShouldNotThrow
+    value: ''

@@ -1,0 +1,18 @@
+# Overlay: real SO-101 follower (powers real motors). Applied together with
+# real_leader.compose.yaml; the follower is never started with a mock leader (the catalog
+# and the agent both enforce this). The real-robot recording contract is chosen by the
+# generated workspace, not here.
+services:
+  follower:
+    environment:
+      BACKEND: real
+      USB_PORT: ${FOLLOWER_PORT:-/dev/null}
+      CALIBRATION_FILE: /calibration/${FOLLOWER_CALIBRATION:-follower.yaml}
+    devices:
+      - ${FOLLOWER_PORT:-/dev/null}:${FOLLOWER_PORT:-/dev/null}
+    volumes:
+      - calibration:/calibration:ro
+
+volumes:
+  calibration:
+    name: mrp-calibration

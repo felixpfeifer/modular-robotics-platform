@@ -1,0 +1,17 @@
+schema_version: workspace-config/v1
+workspace:
+  id: gazebo_so101_red_cube
+  dataset_dir: /data/datasets/so101_red_cube
+  recording_profiles: ../recording_profiles.yaml
+  recording_profile_id: so101_vla_sim_dual_v1
+  task_catalog: ../task_catalog.yaml
+  task_id: red_cube_to_rectangle
+  calibration:
+    id: so101-wrist-camera-simulation-v1
+    hash: sha256:c41bd0c9e240ffb07c79f4f5e5aeb01293c80e849d57bd4925cb34c83ac56352
+  producer:
+    source_revision: gazebo-so101-vla-v1
+  recorder:
+    preflight_min_free_gib: 1.0
+    runtime_reserve_gib: 0.5
+  command_bridge_enabled: true

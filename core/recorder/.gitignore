@@ -1,0 +1,10 @@
+.build/
+.venv/
+__pycache__/
+.pytest_cache/
+.test-artifacts/
+log/
+hil-data/
+hil-artifacts/
+.ci_ws/
+.cmake/

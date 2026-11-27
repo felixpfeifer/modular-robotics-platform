@@ -1,0 +1,33 @@
+schema_version: recording-profile/v2
+profiles:
+  so101_vla_rgb_30_v1:
+    robot_config: robots/so101.yaml
+    camera_configs:
+      - cameras/top_rgb_30.yaml
+    timeline_camera: top
+    minimum_duration_seconds: 2.0
+    maximum_source_receipt_offset_ms: 1000.0
+    optional_topics:
+      - /platform/control/safety_events
+      - /platform/control/command_rejections
+  so101_vla_wrist_rgb_15_v1:
+    robot_config: robots/so101_sim.yaml
+    camera_configs:
+      - cameras/wrist_rgb_15.yaml
+    timeline_camera: wrist
+    minimum_duration_seconds: 5.0
+    maximum_source_receipt_offset_ms: 1000.0
+    optional_topics:
+      - /platform/control/safety_events
+      - /platform/control/command_rejections
+  so101_vla_sim_dual_v1:
+    robot_config: robots/so101_sim.yaml
+    camera_configs:
+      - cameras/wrist_rgb_15.yaml
+      - cameras/top_rgb_30_sim.yaml
+    timeline_camera: top
+    minimum_duration_seconds: 5.0
+    maximum_source_receipt_offset_ms: 1000.0
+    optional_topics:
+      - /platform/control/safety_events
+      - /platform/control/command_rejections

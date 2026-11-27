@@ -1,0 +1,144 @@
+include:
+  - local: .gitlab/ci/docker-hub.yml
+
+stages: [image-check, test, image-build, image-publish, integration]
+
+variables:
+  # Base images this repo is FROM; a scheduled pipeline rebuilds when one changes (docker-hub.yml).
+  IMAGE_BASES: |
+    mrp-app all docker.io/${DOCKERHUB_USERNAME}/mrp-episode-recorder:latest
+  # Dockerfile.agent builds from the MRP workspace root and also needs core/cell_config.
+  IMAGE_REPO_PATH: application/backend
+  CELL_CONFIG_REF: main
+
+image:context:
+  variables:
+    IMAGE_EXTRA_SOURCES: >-
+      core/cell_config
+      global-dynamics/robot-foundation-models/modular-robotics-platform/core/cell_config
+      $CELL_CONFIG_REF
+
+.pip-cache:
+  variables:
+    PIP_CACHE_DIR: $CI_PROJECT_DIR/.cache/pip
+    UV_CACHE_DIR: $CI_PROJECT_DIR/.cache/uv
+  cache:
+    key:
+      files: [uv.lock]
+    paths: [.cache/pip/, .cache/uv/]
+
+unit-and-http:
+  extends: .pip-cache
+  stage: test
+  image: python:3.12-slim
+  script:
+    - pip install --disable-pip-version-check uv==0.11.13
+    - bash check.sh
+  artifacts:
+    when: always
+    reports:
+      junit: artifacts/junit.xml
+    paths: [artifacts/]
+
+# The demo image itself is built (natively, per architecture) by build:mrp-app-demo:*;
+# this only validates the compose file, which needs no Docker daemon.
+demo-compose:
+  stage: test
+  image: docker:cli
+  script:
+    - docker compose -f compose.demo.yaml config --quiet
+
+# Optional integration runner: a dedicated Linux Docker host with this MRP
+# workspace and running ROS-mode application. Never point this at hardware.
+mock-record-export:
+  stage: integration
+  tags: [mrp-mock]
+  rules:
+    - if: '$MRP_FULL_INTEGRATION == "1"'
+      when: manual
+    - when: never
+  script:
+    - python3 tests/integration/record_export.py --url "${MRP_TEST_URL:-http://127.0.0.1:8088}"
+  artifacts:
+    when: always
+    paths: [artifacts/]
+
+build:mrp-app:amd64:
+  extends: [.image-build, .image-amd64]
+  variables: &app_image
+    IMAGE_NAME: mrp-app
+    # The ROS-mode app extends the published recorder image (publish core/recorder first).
+    IMAGE_BUILD_ARGS: BASE_IMAGE=docker.io/${DOCKERHUB_USERNAME}/mrp-episode-recorder:latest
+
+build:mrp-app:arm64:
+  extends: [.image-build, .image-arm64]
+  variables: *app_image
+
+publish:mrp-app:
+  extends: .image-publish
+  variables: *app_image
+  needs:
+    - job: base:check
+      optional: true
+      artifacts: true
+    - job: unit-and-http
+      artifacts: false
+    - job: demo-compose
+      artifacts: false
+    - job: build:mrp-app:amd64
+      artifacts: false
+    - job: build:mrp-app:arm64
+      artifacts: false
+
+build:mrp-app-agent:amd64:
+  extends: [.image-build, .image-amd64]
+  variables: &agent_image
+    IMAGE_NAME: mrp-app-agent
+    IMAGE_CONTEXT: "."
+    IMAGE_DOCKERFILE: application/backend/Dockerfile.agent
+
+build:mrp-app-agent:arm64:
+  extends: [.image-build, .image-arm64]
+  variables: *agent_image
+
+publish:mrp-app-agent:
+  extends: .image-publish
+  variables: *agent_image
+  needs:
+    - job: base:check
+      optional: true
+      artifacts: true
+    - job: unit-and-http
+      artifacts: false
+    - job: demo-compose
+      artifacts: false
+    - job: build:mrp-app-agent:amd64
+      artifacts: false
+    - job: build:mrp-app-agent:arm64
+      artifacts: false
+
+build:mrp-app-demo:amd64:
+  extends: [.image-build, .image-amd64]
+  variables: &demo_image
+    IMAGE_NAME: mrp-app-demo
+    IMAGE_DOCKERFILE: Dockerfile.demo
+
+build:mrp-app-demo:arm64:
+  extends: [.image-build, .image-arm64]
+  variables: *demo_image
+
+publish:mrp-app-demo:
+  extends: .image-publish
+  variables: *demo_image
+  needs:
+    - job: base:check
+      optional: true
+      artifacts: true
+    - job: unit-and-http
+      artifacts: false
+    - job: demo-compose
+      artifacts: false
+    - job: build:mrp-app-demo:amd64
+      artifacts: false
+    - job: build:mrp-app-demo:arm64
+      artifacts: false

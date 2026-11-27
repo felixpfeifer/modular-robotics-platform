@@ -1,0 +1,47 @@
+# Local training for the MRP deployment agent (mrp-training project).
+# The agent validates the rendered plan (application/backend/mrp_app/deployment.py): `train` must be
+# offline with named volumes only; `hub_import` is the only service with network access.
+name: mrp-training
+
+x-image: &image
+  image: ${MRP_AI_LEROBOT_IMAGE:-mrp-ai-lerobot:dev}
+  build:
+    context: .
+
+services:
+  train:
+    <<: *image
+    # The agent appends the `train` arguments (--dataset, --runs-dir, --steps, ...).
+    command: ["train"]
+    network_mode: none
+    restart: "no"
+    volumes:
+      - ./ai_lerobot:/app/ai_lerobot:ro
+      - ./training_lerobot:/app/training_lerobot:ro
+      - ./policy_lerobot:/app/policy_lerobot:ro
+      - exports:/data/exports:ro
+      - training_runs:/data/runs
+    # GPU runs add training.gpu.compose.yaml (see the deployment agent).
+
+  # Download a checkpoint from the Hugging Face Hub into the runs volume. Only started on request
+  # (profile `import`); the token is passed through the environment and never written to disk.
+  hub_import:
+    <<: *image
+    profiles: [import]
+    command: ["import"]
+    restart: "no"
+    environment:
+      HF_TOKEN:
+    volumes:
+      - ./ai_lerobot:/app/ai_lerobot:ro
+      - ./training_lerobot:/app/training_lerobot:ro
+      - ./policy_lerobot:/app/policy_lerobot:ro
+      - training_runs:/data/runs
+
+volumes:
+  exports:
+    external: true
+    name: mrp-app_exports
+  training_runs:
+    external: true
+    name: mrp-training_runs

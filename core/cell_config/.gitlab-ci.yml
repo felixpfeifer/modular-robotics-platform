@@ -1,0 +1,55 @@
+image: docker.io/felixpfeifer/mrp-ros-base:latest
+
+include:
+  - local: .gitlab/ci/docker-hub.yml
+
+variables:
+  IMAGE_BASES: |
+    mrp-cell-config all docker.io/${DOCKERHUB_USERNAME}/mrp-ros-base:latest
+
+stages:
+  - image-check
+  - test
+  - image-build
+  - image-publish
+
+build_and_test:
+  stage: test
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends python3-colcon-common-extensions python3-pytest
+    - source /opt/platform/install/setup.bash
+  script:
+    - colcon build --packages-select cell_config
+    - source install/setup.bash
+    - python3 -m pytest test --junitxml=reports/pytest.xml
+  artifacts:
+    when: always
+    reports:
+      junit: reports/pytest.xml
+    paths:
+      - reports/pytest.xml
+
+build:mrp-cell-config:amd64:
+  extends: [.image-build, .image-amd64]
+  variables: &cell_config_image
+    IMAGE_NAME: mrp-cell-config
+    IMAGE_BUILD_ARGS: BASE_IMAGE=docker.io/${DOCKERHUB_USERNAME}/mrp-ros-base:latest
+
+build:mrp-cell-config:arm64:
+  extends: [.image-build, .image-arm64]
+  variables: *cell_config_image
+
+publish:mrp-cell-config:
+  extends: .image-publish
+  variables: *cell_config_image
+  needs:
+    - job: base:check
+      optional: true
+      artifacts: true
+    - job: build_and_test
+      artifacts: false
+    - job: build:mrp-cell-config:amd64
+      artifacts: false
+    - job: build:mrp-cell-config:arm64
+      artifacts: false

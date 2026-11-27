@@ -1,0 +1,6 @@
+/build/
+build-ci/
+/build-sanitizers/
+/trivy-source.json
+/trivy-image.json
+/image-sbom.cdx.json

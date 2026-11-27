@@ -1,0 +1,18 @@
+schema_version: workspace-config/v1
+workspace:
+  id: mock_so101_webcam
+  # One recordings library for mock and real cells; episodes carry their own provenance.
+  dataset_dir: /data/datasets/mock_so101
+  recording_profiles: recording_profiles.yaml
+  recording_profile_id: mock_so101_webcam_v1
+  task_catalog: tasks.yaml
+  task_id: pipeline_check
+  calibration:
+    id: mock-so101-identity-v1
+    hash: sha256:49ad1203d777fb1c0ed6386d8590bda28e202ceef39bc8b754ca00e218fd209a
+  producer:
+    source_revision: mock-so101-config-v1
+  recorder:
+    preflight_min_free_gib: 10.0
+    runtime_reserve_gib: 5.0
+  command_bridge_enabled: false

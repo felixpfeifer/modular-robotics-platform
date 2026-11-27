@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Start and stop SO-101 leader/follower containers. See ./so101 help.
+set -euo pipefail
+cd "$(dirname "$(readlink -f "$0")")"
+[ -f .env ] && { set -a; source .env; set +a; }
+
+usage() {
+  cat <<'H'
+Usage:
+  ./so101 up <leader|follower> [options]
+      --backend mock|gazebo|real   default: mock
+      --port DEVICE                serial device, for --backend real
+      --calibration FILE           file in config/calibration/, for --backend real
+      --rmw zenoh|cyclonedds|fastdds   default: zenoh (use one for all containers)
+      --rviz                       open RViz2 for this arm
+      --gazebo-gui                 open the Gazebo window too
+  ./so101 down                     stop everything
+  ./so101 ps | logs [service] | build
+  ./so101 shell <leader|follower>  ROS shell inside a running arm
+  ./so101 viz <leader|follower> [--sim]   RViz2 installed on this machine (GPU, smooth).
+                                   Needs: sudo apt install ros-jazzy-rmw-zenoh-cpp
+                                   and ./so101 viz-setup once. --sim for Gazebo arms.
+  ./so101 viz-setup                build the robot meshes for the local RViz2
+
+Defaults can be kept in .env (see .env.example).
+H
+}
+
+compose() { docker compose --profile zenoh --profile leader --profile follower \
+  --profile rviz-leader --profile rviz-follower "$@"; }
+
+cmd="${1:-help}"; [ $# -gt 0 ] && shift
+case "$cmd" in
+  up)
+    role="${1:-}"; [ $# -gt 0 ] && shift
+    case "$role" in leader|follower) ;; *) usage; exit 2 ;; esac
+    upper="${role^^}"
+    rviz=false
+    backend_var="${upper}_BACKEND"; backend="${!backend_var:-mock}"
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --backend) backend="$2"; shift 2 ;;
+        --port) export "${upper}_PORT=$2"; shift 2 ;;
+        --calibration) export "${upper}_CALIBRATION=/calibration/$(basename "$2")"; shift 2 ;;
+        --rmw) export RMW="$2"; shift 2 ;;
+        --rviz) rviz=true; shift ;;
+        --gazebo-gui) export "${upper}_GAZEBO_GUI=true"; shift ;;
+        *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
+      esac
+    done
+    case "$backend" in mock|gazebo|real) ;; *) echo "Unknown backend: $backend" >&2; exit 2 ;; esac
+    export "${upper}_BACKEND=$backend"
+    export RMW="${RMW:-zenoh}"
+
+    if [ "$backend" = real ]; then
+      port_var="${upper}_PORT"; port="${!port_var:-}"
+      if [ -z "$port" ] || [ ! -e "$port" ]; then
+        echo "Serial port '${port:-unset}' not found on this machine. Pass --port (on WSL2, attach it with usbipd first)." >&2
+        exit 1
+      fi
+    fi
+
+    profiles=(--profile "$role")
+    services=("so101_$role")
+    if [ "$RMW" = zenoh ]; then profiles+=(--profile zenoh); services=(zenoh_router "${services[@]}"); fi
+    if $rviz; then profiles+=(--profile "rviz-$role"); services+=("rviz_$role"); fi
+    docker compose "${profiles[@]}" up -d "${services[@]}"
+    echo "$role is starting on $backend ($RMW). Follow it with: ./so101 logs so101_$role"
+    ;;
+  probe)
+    # Read-only check of the servos on a port: ./so101 probe scan|watch PORT, see tools/so101_probe.py.
+    exec python3 "$(dirname "$(readlink -f "$0")")/tools/so101_probe.py" "$@" ;;
+  down) compose down ;;
+  ps) compose ps ;;
+  logs) compose logs -f "$@" ;;
+  build) compose build ;;
+  shell)
+    role="${1:-}"
+    case "$role" in leader|follower) ;; *) usage; exit 2 ;; esac
+    docker exec -it "so101_$role" /app/docker/entrypoint.sh bash
+    ;;
+  viz-setup)
+    root="$PWD"
+    mkdir -p "$HOME/so101_viz"
+    ( set +u; source /opt/ros/jazzy/setup.bash
+      cd "$HOME/so101_viz"
+      colcon build --base-paths "$root/src/ros2_so_arm/so_arm101_description" )
+    ;;
+  viz)
+    role="${1:-}"; [ $# -gt 0 ] && shift
+    case "$role" in leader|follower) ;; *) usage; exit 2 ;; esac
+    sim=false; [ "${1:-}" = "--sim" ] && sim=true
+    ns=""; [ "$role" = leader ] && ns="${LEADER_NAMESPACE:-leader}"
+    ns="${ns#/}"; prefix="${ns:+$ns/}"
+    ( set +u; source /opt/ros/jazzy/setup.bash
+      [ -f "$HOME/so101_viz/install/setup.bash" ] || { echo "Run ./so101 viz-setup first." >&2; exit 1; }
+      source "$HOME/so101_viz/install/setup.bash"
+      [ -f /opt/ros/jazzy/lib/librmw_zenoh_cpp.so ] || { echo "Install it first: sudo apt install ros-jazzy-rmw-zenoh-cpp" >&2; exit 1; }
+      export RMW_IMPLEMENTATION=rmw_zenoh_cpp ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+      export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
+      config="$(mktemp --suffix=.rviz)"
+      sed -e "s|@DESCRIPTION_TOPIC@|/${prefix}robot_description|" \
+          -e "s|@TF_PREFIX@|${ns}|" -e "s|@FIXED_FRAME@|${prefix}base_link|" \
+          src/so101_bringup/rviz/arm.rviz.in > "$config"
+      exec rviz2 -d "$config" --ros-args -p use_sim_time:=$sim -r "/clock:=/${prefix}clock" )
+    ;;
+  help|-h|--help) usage ;;
+  *) usage; exit 2 ;;
+esac

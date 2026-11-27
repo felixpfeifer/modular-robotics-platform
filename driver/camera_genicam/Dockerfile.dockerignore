@@ -1,0 +1,10 @@
+# Build context is the driver workspace: send only what the Dockerfile copies.
+*
+!mrp_camera_common/CMakeLists.txt
+!mrp_camera_common/package.xml
+!mrp_camera_common/include
+!camera_genicam/CMakeLists.txt
+!camera_genicam/package.xml
+!camera_genicam/include
+!camera_genicam/src
+!camera_genicam/test

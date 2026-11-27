@@ -1,0 +1,10 @@
+/artifacts/*
+!/artifacts/.gitkeep
+/.cache/
+/.venv/
+/build/
+/install/
+/log/
+__pycache__/
+*.py[cod]
+*.swp

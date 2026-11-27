@@ -1,0 +1,11 @@
+# Replace the group below with the protected interface-owner group when the
+# GitLab project is provisioned.
+* @global-dynamics/robot-foundation-models/modular-robotics-platform/foundation
+
+/platform_common_interfaces/ @global-dynamics/robot-foundation-models/modular-robotics-platform/foundation
+/platform_device_interfaces/ @global-dynamics/robot-foundation-models/modular-robotics-platform/foundation
+/platform_control_interfaces/ @global-dynamics/robot-foundation-models/modular-robotics-platform/foundation
+/platform_episode_interfaces/ @global-dynamics/robot-foundation-models/modular-robotics-platform/foundation
+/.cz.toml @global-dynamics/robot-foundation-models/modular-robotics-platform/foundation
+/VERSION @global-dynamics/robot-foundation-models/modular-robotics-platform/foundation
+/.gitlab-ci.yml @global-dynamics/robot-foundation-models/modular-robotics-platform/foundation

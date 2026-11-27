@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "Simulated demo cell",
+  "robots": [
+    {"id": "leader", "name": "Mock leader", "role": "leader", "driver": "robot_so101", "namespace": "/leader", "connection": {"type": "simulated"}},
+    {"id": "follower", "name": "Mock follower", "role": "follower", "driver": "robot_so101", "namespace": "/follower", "connection": {"type": "simulated"}}
+  ],
+  "cameras": [
+    {"id": "wrist", "name": "Mock wrist camera", "driver": "camera_opencv", "topic": "/wrist_camera/image/compressed", "connection": {"type": "simulated"}, "attached_to": "follower"},
+    {"id": "overview", "name": "Mock overview camera", "driver": "camera_opencv", "topic": "/overview_camera/image/compressed", "connection": {"type": "simulated"}}
+  ],
+  "control_links": [{"leader": "leader", "follower": "follower"}]
+}

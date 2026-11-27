@@ -1,0 +1,12 @@
+schema_version: camera-config/v1
+camera:
+  name: wrist
+  topic: /wrist_camera/image/compressed
+  type: sensor_msgs/msg/CompressedImage
+  width: 640
+  height: 480
+  format: jpeg
+  fps: 15.0
+  fps_tolerance: 0.4
+  minimum_coverage: 0.98
+  maximum_gap_ms: 100.0
