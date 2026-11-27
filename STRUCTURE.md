@@ -4,7 +4,7 @@ Snapshot of the Modular Robotics Platform (MRP) workspace, taken on 2026-11-27. 
 
 ## Workspace layout
 
-This is a monorepo: every component under `core/`, `driver/` and `application/` lives in this single repository. `driver/robot_so101/src/ros2_so_arm` is a git submodule (clone with `--recurse-submodules`); `driver/robot_so101/src/feetech_ros2_driver` is vendored (BSD-3-Clause) with local patches. The IDS SDK installers are not included; see `driver/camera_ids/sdk/README.md`.
+This is a monorepo: every component under `core/`, `driver/` and `application/` lives in this single repository. `driver/robot_so101/src/ros2_so_arm` and `driver/robot_so101/src/feetech_ros2_driver` (fork with local patches) are git submodules; clone with `--recurse-submodules`. The IDS SDK installers are not included; see `driver/camera_ids/sdk/README.md`.
 
 ```
 mrp/

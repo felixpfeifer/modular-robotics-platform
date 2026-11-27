@@ -1,3 +1,6 @@
 [submodule "driver/robot_so101/src/ros2_so_arm"]
 	path = driver/robot_so101/src/ros2_so_arm
 	url = https://github.com/ros-physical-ai/ros2_so_arm.git
+[submodule "driver/robot_so101/src/feetech_ros2_driver"]
+	path = driver/robot_so101/src/feetech_ros2_driver
+	url = https://github.com/felixpfeifer/feetech_ros2_driver.git
