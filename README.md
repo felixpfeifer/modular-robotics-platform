@@ -91,36 +91,33 @@ The planned GUI should provide a guided setup wizard, capability/compatibility c
 
 ## Repository organization
 
-The existing GitLab group is **[Modular Robotics Platform](https://gitlab.com/global-dynamics/robot-foundation-models/modular-robotics-platform)**. It already uses a layered hierarchy. Preserve those groups and repositories rather than renaming or flattening them to fit a hypothetical layout.
+This repository is a **monorepo**: every MRP component lives here, grouped by architectural layer. Each component keeps its own build files, tests, `Dockerfile`(s) and `ci.local`, so it can still be built and released on its own.
 
-| GitLab subgroup | Known existing repositories | Architectural role |
+| Directory | Components | Architectural role |
 | --- | --- | --- |
-| **Foundation** | `ros-interfaces` | Shared ROS message/service/action definitions and low-level contracts |
-| **Drivers** | `robot_so101`, `camera_opencv` | Robot and camera-specific integration; additional drivers are extensibility targets |
-| **Core** | `cell_config`, `recorder`, `control_arbiter` | Cell configuration, recording and arbitration/control services |
-| **Applications** | Repositories not yet specified here | End-user workflows and eventual web GUI |
+| [`core/`](core) | `ros-interfaces`, `cell_config`, `camera_manager`, `control_arbiter`, `recorder`, `ai_lerobot` | Shared ROS 2 interfaces (the foundation layer), cell configuration, camera management, command arbitration, episode recording and LeRobot training/serving |
+| [`driver/`](driver) | `robot_so101`, `camera_opencv`, `camera_realsense`, `camera_genicam`, `camera_ids`, `mrp_camera_common` | Robot and camera adapters that expose hardware to ROS 2; additional drivers are extensibility targets |
+| [`application/`](application) | `backend`, `frontend` | HTTP API, CLI, deployment agent and the browser dashboard |
 
-The GitLab listing indicates there are more repositories than shown above. **This table is intentionally incomplete**: inspect the actual group and source trees before assigning ownership or claiming capabilities. Names such as `dataset-tools`, `simulation`, `training`, `atm`, `deployment`, or `workspace` elsewhere in earlier design notes are *proposed or unverified*, not confirmed repositories in this group.
+[`STRUCTURE.md`](STRUCTURE.md) describes every component in detail. Third-party code is pulled in as git submodules under `driver/robot_so101/src/`, so clone with `--recurse-submodules`. The proprietary IDS SDK is not redistributed; see [`driver/camera_ids/sdk/README.md`](driver/camera_ids/sdk/README.md).
 
-The group hierarchy and the runtime dependency architecture are related but not identical: **Foundation** supplies cross-layer interfaces; hardware itself is outside GitLab; **Drivers** expose hardware to ROS; **Core** implements stable services and orchestration; **Applications** consumes those services. Training backends and model adapters should be placed by interface ownership, without forcing all cloud or notebook code into ROS nodes.
+The directory layout and the runtime dependency architecture are related but not identical: `core/ros-interfaces` supplies cross-layer contracts; hardware itself is outside the repository; `driver/` exposes hardware to ROS; `core/` implements stable services and orchestration; `application/` consumes those services. Training backends and model adapters should be placed by interface ownership, without forcing all cloud or notebook code into ROS nodes.
 
-An integration workspace repository (if present or added) can own `mrp.repos`, Compose profiles, cross-repository tests, and the entry point for Codex/Claude Code. Do not assume the integration repository already exists. `vcstool` and Docker Compose remain the intended integration mechanisms.
-
-Do not force every conceptual layer into one repository. Assign code to the repository that owns its stable interface and lifecycle. An adapter may live in its own repository. Avoid cyclic dependencies and hidden cross-repository imports.
+Assign code to the component that owns its stable interface and lifecycle. An adapter may live in its own component directory. Avoid cyclic dependencies and hidden imports across components; depend on the published interfaces in `core/ros-interfaces` instead.
 
 ## Development and deployment conventions
 
 The local recording application baseline is implemented in
-[`application/mrp_app`](application/mrp_app/README.md). It provides a dashboard,
+[`application/backend`](application/backend/README.md) (with the dashboard in
+[`application/frontend`](application/frontend)). It provides a dashboard,
 API and CLI, a hardware-free UI demo, and integration with the mock SO-101
-recording/validation/export pipeline. See
-[`RECORDING_BASELINE_PLAN.md`](RECORDING_BASELINE_PLAN.md) for the broader plan.
+recording/validation/export pipeline.
 The source-free Docker Hub release described below remains planned.
 
 - ROS 2 **Jazzy** for robot-side components; use `colcon`, `rosdep`, launch files, and standard ROS interfaces where appropriate.
 - Docker-first for reproducible services; multi-architecture builds where needed (`amd64` and Jetson-compatible `arm64`). Release runtime images are intended to be public on **Docker Hub**, subject to redistribution rights.
-- Multi-repo checkout managed with **vcstool** (`mrp.repos`). Keep the manifest pinned for reproducible project states; update intentionally.
-- **Every first-party package must be covered by GitLab CI/CD.** Each repository must provide a `.gitlab-ci.yml`, directly or through shared includes, covering all packages it owns: build, lint, relevant unit/contract tests, and container build checks for containerized services. Release pipelines publish verified runtime images to Docker Hub with version tags and immutable digests. Keep publication credentials masked/protected and unavailable to untrusted merge requests. Interface/library packages may share a tested base image rather than each having a runtime container.
+- Single monorepo checkout; third-party sources are pinned git submodules. Update submodule pins intentionally to keep project states reproducible.
+- **Every first-party package must be covered by CI.** Each component provides a `ci.local` script (see [`LOCAL_CI.md`](LOCAL_CI.md)) and a `.gitlab-ci.yml` from its original development; GitHub Actions for this repository are planned. CI must cover all packages a component owns: build, lint, relevant unit/contract tests, and container build checks for containerized services. Release pipelines publish verified runtime images to Docker Hub with version tags and immutable digests. Keep publication credentials masked/protected and unavailable to untrusted merge requests. Interface/library packages may share a tested base image rather than each having a runtime container.
 - Default deployed ROS communication: **ROS 2 Jazzy with `rmw_zenoh_cpp` and a Zenoh router**. Zenoh is ROS middleware, not DDS; DDS implementations used for contract qualification or explicit development profiles remain separate supported configurations. Record middleware settings and `ROS_DOMAIN_ID` in the cell configuration.
 - Tooling includes MCAP/rosbag2, Foxglove bridge, RViz2 and Gazebo. Prefer native laptop installations of RViz2 and other interactive tools for responsive visualization; configure them to join the cell's Zenoh router.
 - Promote changes through unit tests, adapter contract tests, simulated integration tests, then explicitly authorized hardware tests.
@@ -128,7 +125,7 @@ The source-free Docker Hub release described below remains planned.
 
 ### Application and cell packaging (planned)
 
-The intended user installation is a published **application Compose file** that pulls released images; users should not need to clone or build the component repositories. Source checkouts and `vcstool` remain the developer workflow. Local configuration, calibration and persistent data are still required and can be created during setup.
+The intended user installation is a published **application Compose file** that pulls released images; users should not need to clone or build this repository. A source checkout remains the developer workflow. Local configuration, calibration and persistent data are still required and can be created during setup.
 
 Use two independently managed Compose projects:
 
@@ -162,22 +159,21 @@ It pulls the cell and application images from `felixpfeifer` on Docker Hub, buil
 `WITH_USB_CAMERA=1 ./start.sh` once if you want a real USB camera. Details and the
 hardware-free UI demo are in `application/backend/README.md`.
 
-### Example entry point (after repositories and manifests exist)
+### Get the source
 
 ```bash
-git clone <gitlab-workspace-url> mrp_ws
-cd mrp_ws
-vcs import src < mrp.repos
-docker compose --profile teleop up
+git clone --recurse-submodules https://github.com/felixpfeifer/modular-robotics-platform.git
+cd modular-robotics-platform
+./start.sh
 ```
 
-This is an intended workflow, not a guarantee that every service or profile is implemented today. Each repository should document its own prerequisites and commands.
+Each component documents its own prerequisites and commands in its README. Not every service or profile described in this document is implemented yet.
 
 ## Guidance for Codex, Claude Code, and contributors
 
 Treat this document as the **product vision and architectural direction**, not proof of existing functionality. Before implementing a task:
 
-1. Inspect the actual repositories, current interfaces, `mrp.repos`, Compose files, and tests. Distinguish **implemented**, **in progress**, and **planned** features.
+1. Inspect the actual components, current interfaces, Compose files, and tests. Distinguish **implemented**, **in progress**, and **planned** features.
 2. Identify the owning layer/repository and the smallest stable interface to change. Prefer additive, backwards-compatible adapters and versioned schemas.
 3. Avoid coupling core recording, datasets, and workflows to one robot, cloud, model framework, GPU, or frontend.
 4. Keep **offline/local** operation functional; make network uploads and cloud spending opt-in.
