@@ -198,4 +198,3 @@ Treat this document as the **product vision and architectural direction**, not p
 ## Project context
 
 Developed as a Master's project at **Hochschule Heilbronn** with the goal of practical, reproducible and extensible imitation learning for Physical AI.
-find . -name .git -prune -print0 | while IFS= read -r -d '' gitdir; do git -C "${gitdir%/.git}" fetch; done
